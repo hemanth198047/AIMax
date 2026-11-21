@@ -12,3 +12,13 @@ export async function loadConversations(): Promise<void> {
   st.setConversations(list);
   if (st.activeConversationId && !list.some(c => c.id === st.activeConversationId)) st.setActiveConversation(null);
 }
+
+/** "?project_id=…&person_id=…" for the current context; the server hides conversations that are not visible in it. */
+export function ctxQs(): string {
+  const { activeProjectId, activePersonId } = useAppStore.getState();
+  const q = new URLSearchParams();
+  if (activeProjectId) q.set('project_id', activeProjectId);
+  if (activePersonId) q.set('person_id', activePersonId);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}

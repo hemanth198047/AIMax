@@ -6,6 +6,7 @@ import { attachmentBlock } from '../attachments/extract.js';
 import { classifyTask } from '../gateway/classify.js';
 import { enhancePrompt, systemInstructions, ENHANCE_MODES, type EnhanceMode } from '../gateway/enhance.js';
 import { buildContext } from '../gateway/context.js';
+import { visibleConversation } from '../memory/projectScope.js';
 
 interface ChatBody {
   conversationId?: string;
@@ -34,6 +35,7 @@ export async function chatRoutes(app: FastifyInstance) {
       db.prepare('INSERT INTO conversations(id,title,scope,project_id,person_id,provider,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run(
         conversationId, message.slice(0, 60) || 'New Conversation', scope, projectId ?? null, personId ?? null, provider, now, now);
     } else {
+      if (!visibleConversation(conversationId, { projectId, personId })) return reply.status(404).send({ error: 'Conversation not found in this context' });
       db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, conversationId);
     }
 

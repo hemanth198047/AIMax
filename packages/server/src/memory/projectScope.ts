@@ -30,3 +30,10 @@ export function bothClause(ctx: MemoryContext, pcol = 'project_id', xcol = 'pers
   if (ctx.projectId && ctx.personId) { parts.push(`(${pcol}=? AND ${xcol}=?)`); args.push(ctx.projectId, ctx.personId); }
   return { sql: `(${parts.join(' OR ')})`, args };
 }
+
+import { getDb } from '../db/index.js';
+/** The conversation row if (and only if) it is visible in the given context; otherwise undefined. */
+export function visibleConversation(id: string, ctx: MemoryContext): Record<string, any> | undefined {
+  const c = bothClause(ctx);
+  return getDb().prepare(`SELECT * FROM conversations WHERE id=? AND ${c.sql}`).get(id, ...c.args) as Record<string, any> | undefined;
+}

@@ -1,3 +1,4 @@
+import { ctxQs } from '../api/conversations';
 import React, { useEffect } from 'react';
 import { Sparkles, FolderOpen, User } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
@@ -13,7 +14,7 @@ export default function ChatView() {
 
   useEffect(() => {
     if (!activeConversationId) return;
-    apiFetch<Message[]>(`/api/conversations/${activeConversationId}/messages`)
+    apiFetch<Message[]>(`/api/conversations/${activeConversationId}/messages${ctxQs()}`)
       .then(msgs => setMessages(activeConversationId, msgs))
       .catch(console.error);
   }, [activeConversationId]);

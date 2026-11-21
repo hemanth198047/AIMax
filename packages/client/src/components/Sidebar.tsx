@@ -1,3 +1,4 @@
+import { ctxQs } from '../api/conversations';
 import React, { useState } from 'react';
 import { Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X, Link, Lightbulb } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
@@ -33,7 +34,7 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
 
   const deleteConversation = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    await apiFetch(`/api/conversations/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/conversations/${id}${ctxQs()}`, { method: 'DELETE' });
     setConversations(conversations.filter(c => c.id !== id));
     if (activeConversationId === id) setActiveConversation(null);
   };

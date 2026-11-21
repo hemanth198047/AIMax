@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
 import { updateRow } from '../db/update.js';
-import { bothClause } from '../memory/projectScope.js';
+import { bothClause, visibleConversation } from '../memory/projectScope.js';
 
 export async function conversationsRoutes(app: FastifyInstance) {
   app.get('/api/conversations', async (req) => {
@@ -26,7 +26,11 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return db.prepare('SELECT * FROM conversations WHERE id=?').get(id);
   });
 
+  // Every by-id route checks the conversation is visible in the caller's context (?project_id=&person_id=).
+  const ctxOf = (req: { query: unknown }) => { const q = req.query as Record<string, string>; return { projectId: q.project_id, personId: q.person_id }; };
+
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/conversations/:id', async (req, reply) => {
+    if (!visibleConversation(req.params.id, ctxOf(req))) return reply.status(404).send({ error: 'Not found' });
     const row = updateRow('conversations', req.params.id, req.body);
     if (row === 'empty') return reply.status(400).send({ error: 'No updatable fields supplied' });
     if (!row) return reply.status(404).send({ error: 'Not found' });
@@ -34,12 +38,13 @@ export async function conversationsRoutes(app: FastifyInstance) {
   });
 
   app.delete<{ Params: { id: string } }>('/api/conversations/:id', async (req, reply) => {
-    const r = getDb().prepare('DELETE FROM conversations WHERE id=?').run(req.params.id);
-    if (!r.changes) return reply.status(404).send({ error: 'Not found' });
+    if (!visibleConversation(req.params.id, ctxOf(req))) return reply.status(404).send({ error: 'Not found' });
+    getDb().prepare('DELETE FROM conversations WHERE id=?').run(req.params.id);
     return { deleted: true };
   });
 
-  app.get<{ Params: { id: string } }>('/api/conversations/:id/messages', async (req) => {
+  app.get<{ Params: { id: string } }>('/api/conversations/:id/messages', async (req, reply) => {
+    if (!visibleConversation(req.params.id, ctxOf(req))) return reply.status(404).send({ error: 'Not found' });
     return getDb().prepare('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at').all(req.params.id);
   });
 }

@@ -135,15 +135,21 @@ test('chat: Stop aborts the provider and saves the partial answer', async () => 
 });
 test('chat: Claude session is reused within a scope and DISCARDED when the scope changes', { skip: !IS_POSIX }, async () => {
   reset(); process.env.FAKE_CLAUDE_MODE = 'ok';
-  const t1 = await chat({ message: 'turn one about canary', provider: 'claude', projectId: 'PA', scope: 'project' });
+  // A global conversation is visible everywhere, so the same chat can legitimately move between contexts.
+  const t1 = await chat({ message: 'turn one about canary', provider: 'claude', scope: 'global' });
   const convId = ev(t1, 'start')[0].conversationId;
   assert.ok(ev(t1, 'activity').some(a => a.detail === 'new provider session'));
-  const t2 = await chat({ conversationId: convId, message: 'turn two', provider: 'claude', projectId: 'PA', scope: 'project' });
+  const t2 = await chat({ conversationId: convId, message: 'turn two', provider: 'claude', scope: 'global' });
   assert.ok(ev(t2, 'activity').some(a => /resumed provider session/.test(a.detail)));
-  const t3 = await chat({ conversationId: convId, message: 'turn three', provider: 'claude', projectId: 'PB', scope: 'project' });
+  const t3 = await chat({ conversationId: convId, message: 'turn three', provider: 'claude', projectId: 'PA', scope: 'project' });
   assert.ok(ev(t3, 'activity').some(a => /context changed/.test(a.detail)), 'scope change must start a fresh session');
   const cs = calls();
   assert.equal(cs[0].resume, null); assert.ok(cs[1].resume); assert.equal(cs[2].resume, null);
-  assert.ok(!cs[2].stdin.includes('Canary plan'), 'private context of PA never reaches PB');
   assert.equal(cs[1].stdin.includes('Previous conversation'), false, 'resumed turn sends only the new message');
+  // A conversation bound to project PA cannot be continued from PB at all (it is not visible there).
+  const t4 = await chat({ message: 'private PA chat', provider: 'claude', projectId: 'PA', scope: 'project' });
+  const paConv = ev(t4, 'start')[0].conversationId;
+  const before = calls().length;
+  const t5 = await chat({ conversationId: paConv, message: 'from PB', provider: 'claude', projectId: 'PB', scope: 'project' });
+  assert.ok(!ev(t5, 'start').length, 'rejected before streaming'); assert.equal(calls().length, before, 'provider never invoked');
 });

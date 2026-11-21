@@ -1,3 +1,4 @@
+import { ctxQs } from '../api/conversations';
 import { loadConversations } from '../api/conversations';
 import React, { useState, useRef, useCallback } from 'react';
 import { Send, Paperclip, Square, X } from 'lucide-react';
@@ -106,7 +107,7 @@ export default function MessageInput({ conversationId }: Props) {
       abortRef.current = null;
       // Always reload: after Stop the server keeps the partial answer, and the list must show what was really saved.
       try {
-        const load = () => apiFetch<Message[]>(`/api/conversations/${conversationId}/messages`);
+        const load = () => apiFetch<Message[]>(`/api/conversations/${conversationId}/messages${ctxQs()}`);
         let msgs = await load();
         if (ctrl.signal.aborted) {
           // The server saves the partial answer slightly after it notices the disconnect; re-check briefly.
