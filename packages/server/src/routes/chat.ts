@@ -102,7 +102,7 @@ export async function chatRoutes(app: FastifyInstance) {
     send('activity', { step: 'provider', detail: provider });
     let full = ''; let usedProvider = provider; let usedModel = ''; let failed: string | null = null;
     try {
-      const r = await autoChat({ messages, system, provider, claudeSessionId: sessionId, signal: ctrl.signal }, (chunk) => { full += chunk; send('chunk', { text: chunk }); });
+      const r = await autoChat({ messages, system, provider, claudeSessionId: sessionId, signal: ctrl.signal, onRoute: d => send('activity', { step: 'routing', detail: d }), meta: { conversationId, projectId: projectId ?? null } }, (chunk) => { full += chunk; send('chunk', { text: chunk }); });
       full = r.text || full; usedProvider = r.provider; usedModel = r.model;
       if (r.provider === 'claude') {
         db.prepare('UPDATE conversations SET claude_session_id=?, claude_session_scope=? WHERE id=?').run(r.claudeSessionId ?? null, r.claudeSessionId ? scopeKey : null, conversationId);

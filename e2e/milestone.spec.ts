@@ -284,3 +284,20 @@ test('chat management: rename, pin, archive/restore, search, delete — all thro
   await item('Beta notes').hover(); await item('Beta notes').getByLabel('Delete conversation').click();
   await expect(item('Beta notes')).toHaveCount(0);
 });
+
+test('usage & limits: a limit set in the UI is saved on the server; status never claims missing adapters', async ({ page }) => {
+  await page.goto('/');
+  const panel = page.getByTestId('usage-panel');
+  await expect(panel).toContainText('Usage & limits');
+  await page.getByLabel('claude hourly limit').fill('7');
+  await page.getByLabel('claude daily limit').fill('30');
+  await page.getByLabel('claude daily limit').blur();
+  await expect.poll(async () => (await (await page.request.get('/api/settings/providers')).json()).limits).toEqual({ claude: { per_hour: 7, per_day: 30 } });
+  await page.reload();
+  await expect(page.getByLabel('claude hourly limit')).toHaveValue('7');
+  await expect(page.getByText(/Cursor, Codex, FreeLLMAPI: no adapter yet/)).toBeVisible();
+  const st = await (await page.request.get('/api/providers/status')).json();
+  expect([st.cursor.available, st.codex.available, st.freellmapi.available]).toEqual([false, false, false]);
+  await page.getByLabel('claude hourly limit').fill(''); await page.getByLabel('claude hourly limit').blur();
+  await expect.poll(async () => (await (await page.request.get('/api/settings/providers')).json()).limits).toEqual({ claude: { per_day: 30 } });
+});

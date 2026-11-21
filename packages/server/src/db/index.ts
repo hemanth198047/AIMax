@@ -268,6 +268,26 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
     if (!hasColumn(db, 'conversations', 'claude_session_id')) db.exec("ALTER TABLE conversations ADD COLUMN claude_session_id TEXT DEFAULT NULL");
     if (!hasColumn(db, 'conversations', 'claude_session_scope')) db.exec("ALTER TABLE conversations ADD COLUMN claude_session_scope TEXT DEFAULT NULL");
   },
+  // v3: settings + local usage ledger (requests/characters per provider; never claims to know a provider's real quota)
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id TEXT PRIMARY KEY,
+        ts TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT DEFAULT '',
+        conversation_id TEXT,
+        project_id TEXT,
+        input_chars INTEGER DEFAULT 0,
+        output_chars INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        ok INTEGER DEFAULT 1,
+        error TEXT DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_provider_ts ON usage_events(provider, ts);
+    `);
+  },
 ];
 
 function migrate(db: Database.Database) {

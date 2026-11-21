@@ -13,6 +13,7 @@ process.stdin.on('end', async () => {
   appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ args, stdin, system, cwd: process.cwd(), cwdEntries: readdirSync(process.cwd()), pid: process.pid, resume }) + '\n');
   const out = o => process.stdout.write(JSON.stringify(o) + '\n');
   const sid = resume || 'sess-' + Math.random().toString(36).slice(2, 8);
+  if (mode === 'ratelimit') { process.stderr.write('Claude usage limit reached. Your limit will reset at 5pm.'); process.exit(1); }
   if (mode === 'bad-exit') { process.stderr.write('boom'); process.exit(2); }
   if (mode === 'fail-resume' && resume) { out({ type: 'result', subtype: 'error', is_error: true, result: 'No conversation found with session ID ' + resume, session_id: resume }); process.exit(1); }
   out({ type: 'system', subtype: 'init', session_id: sid });

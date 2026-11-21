@@ -110,20 +110,25 @@ export async function claudeChat(messages: ChatMessage[], system: string, onChun
   return { text: r.text, sessionId: r.sessionId, resumed: false };
 }
 
-let cache: { at: number; ok: boolean } | null = null;
-export async function checkClaudeAvailable(): Promise<boolean> {
-  if (cache && Date.now() - cache.at < 30_000) return cache.ok;
+let cache: { at: number; ok: boolean; version: string } | null = null;
+async function probeClaude(): Promise<{ ok: boolean; version: string }> {
+  if (cache && Date.now() - cache.at < 30_000) return cache;
   const { file, shell } = resolveClaudeBin();
-  const ok = await new Promise<boolean>((resolve) => {
+  const r = await new Promise<{ ok: boolean; version: string }>((resolve) => {
     try {
-      const p = spawn(file, ['--version'], { stdio: 'ignore', shell, windowsHide: true });
-      const t = setTimeout(() => { p.kill(); resolve(false); }, 5000);
-      p.on('close', (c) => { clearTimeout(t); resolve(c === 0); });
-      p.on('error', () => { clearTimeout(t); resolve(false); });
-    } catch { resolve(false); }
+      const p = spawn(file, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], shell, windowsHide: true });
+      let out = '';
+      p.stdout!.on('data', (d: Buffer) => { out += d.toString(); });
+      const t = setTimeout(() => { p.kill(); resolve({ ok: false, version: '' }); }, 5000);
+      p.on('close', (c) => { clearTimeout(t); resolve({ ok: c === 0, version: out.trim().split(/\r?\n/)[0].slice(0, 60) }); });
+      p.on('error', () => { clearTimeout(t); resolve({ ok: false, version: '' }); });
+    } catch { resolve({ ok: false, version: '' }); }
   });
-  cache = { at: Date.now(), ok };
-  return ok;
+  cache = { at: Date.now(), ...r };
+  return r;
 }
+export async function checkClaudeAvailable(): Promise<boolean> { return (await probeClaude()).ok; }
+/** The version the installed CLI reports (empty if unavailable) — never a hard-coded guess. */
+export async function claudeVersion(): Promise<string> { return (await probeClaude()).version; }
 export const _resetClaudeCache = () => { cache = null; };
 export const claudeBinExists = () => existsSync(resolveClaudeBin().file);

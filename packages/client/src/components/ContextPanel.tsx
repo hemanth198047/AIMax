@@ -6,6 +6,7 @@ import { useChatStore } from '../stores/chatStore';
 import { apiFetch } from '../api/client';
 import type { PersonLink } from '../api/client';
 import clsx from 'clsx';
+import UsagePanel from './UsagePanel';
 
 const PROVIDERS = [
   { id: 'auto', label: 'Auto', desc: 'Best available' },
@@ -14,9 +15,10 @@ const PROVIDERS = [
 ];
 
 interface ProviderStatus {
-  claude: { available: boolean };
-  ollama: { available: boolean; models: string[] };
+  claude: { available: boolean; version?: string };
+  ollama: { available: boolean; models: string[]; selected?: string };
   cursor: { available: boolean };
+  codex?: { available: boolean };
   freellmapi: { available: boolean };
   test?: { available: boolean };
 }
@@ -29,11 +31,8 @@ export default function ContextPanel() {
   const [linkRole, setLinkRole] = useState('contributor');
   const [linkError, setLinkError] = useState('');
 
-  useEffect(() => {
-    apiFetch<ProviderStatus>('/api/providers/status')
-      .then(setProviderStatus)
-      .catch(() => {});
-  }, []);
+  const loadStatus = () => { apiFetch<ProviderStatus>('/api/providers/status').then(setProviderStatus).catch(() => {}); };
+  useEffect(loadStatus, []);
 
   useEffect(() => {
     if (!activeProjectId) { setLinked([]); return; }
@@ -142,12 +141,12 @@ export default function ContextPanel() {
             );
           })}
         </div>
-        {providerStatus?.ollama.models.length ? (
-          <div className="mt-2 text-[9px] text-slate-700">
-            Ollama: {providerStatus.ollama.models.slice(0, 3).join(', ')}
-          </div>
-        ) : null}
+        <div className="mt-2 text-[9px] text-slate-700">
+          {providerStatus?.claude.available ? `Claude CLI ${providerStatus.claude.version ?? ''}` : 'Claude CLI not found'} · Cursor, Codex, FreeLLMAPI: no adapter yet
+        </div>
       </div>
+
+      <UsagePanel ollamaModels={providerStatus?.ollama.models ?? []} ollamaSelected={providerStatus?.ollama.selected ?? ''} onModelChange={loadStatus} />
 
       {/* Prompt enhancement */}
       <div className="p-3 border-b border-slate-800">
