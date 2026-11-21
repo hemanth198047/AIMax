@@ -1,98 +1,176 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Terminal, Play, Square, Plus, Trash2, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Terminal, Play, Square, Plus, Trash2, FolderOpen, File as FileIcon, ChevronDown, ChevronUp, GitBranch, Save, RotateCcw, Shield } from 'lucide-react';
 import { apiFetch } from '../api/client';
-import type { Sandbox } from '../api/client';
+import type { Sandbox, SandboxMode, SandboxCapabilities, SandboxFileEntry, SandboxGit, SandboxCheckpoint } from '../api/client';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
 
-interface OutputLine { text: string; type: 'stdout' | 'stderr' | 'info' | 'error'; ts: string; }
+interface OutputLine { text: string; type: 'stdout' | 'stderr' | 'info' | 'error'; }
+type Tab = 'terminal' | 'changes' | 'files';
+
+const MODE_LABEL: Record<SandboxMode, string> = {
+  temporary: 'Temporary copy', readonly: 'Read-only', container: 'Container (Docker)', direct: 'Direct (real project)',
+};
 
 export default function SandboxPanel() {
+  const { activeProjectId, projects } = useAppStore();
   const [expanded, setExpanded] = useState(false);
+  const [tab, setTab] = useState<Tab>('terminal');
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
-  const [activeSandboxId, setActiveSandboxId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [caps, setCaps] = useState<SandboxCapabilities | null>(null);
+  const [newMode, setNewMode] = useState<SandboxMode>('temporary');
   const [command, setCommand] = useState('');
+  const [runId, setRunId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<OutputLine[]>([]);
-  const [files, setFiles] = useState<unknown[]>([]);
+  const [files, setFiles] = useState<SandboxFileEntry[]>([]);
+  const [viewing, setViewing] = useState<{ path: string; content?: string; note?: string } | null>(null);
+  const [git, setGit] = useState<SandboxGit | null>(null);
+  const [checkpoints, setCheckpoints] = useState<SandboxCheckpoint[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
-  const { activeProjectId } = useAppStore();
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    if (expanded) loadSandboxes();
-  }, [expanded]);
+  const active = sandboxes.find(s => s.id === activeId) ?? null;
+  const say = (text: string, type: OutputLine['type']) => setOutput(o => [...o.slice(-1000), { text, type }]);
+  const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-  useEffect(() => {
-    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' });
-  }, [output]);
-
-  const loadSandboxes = async () => {
-    const all = await apiFetch<Sandbox[]>('/api/sandbox');
+  const loadSandboxes = useCallback(async () => {
+    const all = await apiFetch<Sandbox[]>('/api/sandbox').catch(() => []);
     setSandboxes(all);
-    if (all.length > 0 && !activeSandboxId) setActiveSandboxId(all[0].id);
-  };
+    setActiveId(cur => cur ?? all[0]?.id ?? null);
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    loadSandboxes();
+    apiFetch<SandboxCapabilities>('/api/sandbox/capabilities').then(setCaps).catch(() => setCaps(null));
+  }, [expanded, loadSandboxes]);
+
+  useEffect(() => { outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight }); }, [output]);
+
+  const refreshInspector = useCallback(async (id: string) => {
+    apiFetch<SandboxFileEntry[]>(`/api/sandbox/${id}/files`).then(setFiles).catch(() => setFiles([]));
+    apiFetch<SandboxGit>(`/api/sandbox/${id}/git`).then(setGit).catch(() => setGit(null));
+    apiFetch<SandboxCheckpoint[]>(`/api/sandbox/${id}/checkpoints`).then(setCheckpoints).catch(() => setCheckpoints([]));
+  }, []);
+  useEffect(() => { setViewing(null); if (activeId && expanded) refreshInspector(activeId); }, [activeId, expanded, refreshInspector]);
 
   const createSandbox = async () => {
-    const sb = await apiFetch<Sandbox>('/api/sandbox', {
-      method: 'POST',
-      body: JSON.stringify({ name: `Sandbox ${Date.now()}`, project_id: activeProjectId, mode: 'temporary' })
-    });
-    setSandboxes(s => [sb, ...s]);
-    setActiveSandboxId(sb.id);
-    addOutput(`Created sandbox: ${sb.name}`, 'info');
-  };
-
-  const addOutput = (text: string, type: OutputLine['type']) => {
-    setOutput(o => [...o.slice(-500), { text, type, ts: new Date().toLocaleTimeString() }]);
-  };
-
-  const execute = async () => {
-    if (!activeSandboxId || !command.trim() || running) return;
-    const cmd = command.trim();
-    setCommand('');
-    setRunning(true);
-    addOutput(`> ${cmd}`, 'info');
-
+    const project = projects.find(p => p.id === activeProjectId);
+    const body: Record<string, unknown> = { name: `${project?.name ?? 'Sandbox'} · ${MODE_LABEL[newMode]}`, project_id: activeProjectId, mode: newMode };
+    if (newMode === 'direct') {
+      const ok = window.confirm(`Direct mode runs commands in your REAL project:\n${project?.repo_path || '(set a repo path on the project)'}\n\nFiles can be changed or deleted. Continue?`);
+      if (!ok) return;
+      body.approve_direct = true;
+    }
     try {
-      const result = await apiFetch<{
-        stdout: string; stderr: string; exitCode: number; timedOut: boolean; durationMs: number;
-      }>(`/api/sandbox/${activeSandboxId}/execute`, {
-        method: 'POST',
-        body: JSON.stringify({ command: cmd, timeout: 30000 })
+      const sb = await apiFetch<Sandbox>('/api/sandbox', { method: 'POST', body: JSON.stringify(body) });
+      setSandboxes(s => [sb, ...s]); setActiveId(sb.id);
+      say(`Created ${MODE_LABEL[sb.mode]} sandbox (${sb.workspace_kind})`, 'info');
+    } catch (e) { say(`Could not create sandbox: ${errMsg(e)}`, 'error'); setExpanded(true); }
+  };
+
+  const deleteSandbox = async () => {
+    if (!active) return;
+    const extra = active.workspace_kind === 'source' ? '\n(Your real project files are NOT deleted.)' : '\nThe temporary workspace and all its changes will be deleted.';
+    if (!window.confirm(`Delete sandbox "${active.name}"?${extra}`)) return;
+    await apiFetch(`/api/sandbox/${active.id}`, { method: 'DELETE' }).catch(e => say(errMsg(e), 'error'));
+    setSandboxes(s => s.filter(x => x.id !== active.id)); setActiveId(null); setFiles([]); setGit(null); setCheckpoints([]);
+  };
+
+  const execute = async (confirm = false, cmdOverride?: string) => {
+    const cmd = (cmdOverride ?? command).trim();
+    if (!active || !cmd || running) return;
+    if (!cmdOverride) setCommand('');
+    setRunning(true); setRunId(null);
+    say(`$ ${cmd}`, 'info');
+    const ctrl = new AbortController(); abortRef.current = ctrl;
+    try {
+      const res = await fetch(`/api/sandbox/${active.id}/run`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+        body: JSON.stringify({ command: cmd, timeout: 60000, confirm }),
       });
-
-      if (result.stdout) result.stdout.split('\n').filter(Boolean).forEach(l => addOutput(l, 'stdout'));
-      if (result.stderr) result.stderr.split('\n').filter(Boolean).forEach(l => addOutput(l, 'stderr'));
-      if (result.timedOut) addOutput('Command timed out (30s)', 'error');
-      else addOutput(`Exit code: ${result.exitCode} (${result.durationMs}ms)`, result.exitCode === 0 ? 'info' : 'error');
-
-      // Refresh files
-      const f = await apiFetch<unknown[]>(`/api/sandbox/${activeSandboxId}/files`);
-      setFiles(f);
-    } catch (err) {
-      addOutput(`Error: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      if (!res.ok || !res.body) {
+        const j = await res.json().catch(() => ({} as { error?: string; needs_confirmation?: boolean }));
+        if (j.needs_confirmation && window.confirm(`${j.error}\n\nRun anyway?\n\n${cmd}`)) { setRunning(false); return execute(true, cmd); }
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i: number;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, i); buf = buf.slice(i + 2);
+          const ev = /^event: (.+)$/m.exec(block)?.[1]; const data = /^data: (.+)$/m.exec(block)?.[1];
+          if (!ev || !data) continue;
+          const d = JSON.parse(data);
+          if (ev === 'start') setRunId(d.runId);
+          else if (ev === 'chunk') String(d.text).split('\n').filter((l: string) => l.length).forEach((l: string) => say(l, d.stream === 'stderr' ? 'stderr' : 'stdout'));
+          else if (ev === 'done') {
+            const note = d.status === 'timeout' ? 'timed out' : d.status === 'cancelled' ? 'cancelled' : d.truncated ? 'output truncated' : '';
+            say(`exit ${d.exitCode} · ${d.durationMs}ms${note ? ' · ' + note : ''}`, d.exitCode === 0 ? 'info' : 'error');
+          }
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') say(`Error: ${errMsg(e)}`, 'error');
     } finally {
-      setRunning(false);
+      setRunning(false); setRunId(null); abortRef.current = null;
+      refreshInspector(active.id);
     }
   };
 
-  const activeSandbox = sandboxes.find(s => s.id === activeSandboxId);
+  const stop = async () => {
+    if (runId) await apiFetch(`/api/sandbox/runs/${runId}/cancel`, { method: 'POST' }).catch(() => undefined);
+    else abortRef.current?.abort();
+  };
+
+  const openFile = async (path: string) => {
+    if (!active) return;
+    try {
+      const f = await apiFetch<{ content?: string; binary?: boolean; tooLarge?: boolean }>(`/api/sandbox/${active.id}/file?path=${encodeURIComponent(path)}`);
+      setViewing({ path, content: f.content, note: f.binary ? 'Binary file' : f.tooLarge ? 'File too large to preview' : undefined });
+    } catch (e) { setViewing({ path, note: errMsg(e) }); }
+  };
+
+  const checkpoint = async () => {
+    if (!active) return;
+    const label = window.prompt('Checkpoint label', 'manual');
+    if (label === null) return;
+    await apiFetch(`/api/sandbox/${active.id}/checkpoints`, { method: 'POST', body: JSON.stringify({ label }) }).catch(e => say(errMsg(e), 'error'));
+    refreshInspector(active.id);
+  };
+  const restore = async (cp: SandboxCheckpoint) => {
+    if (!active || !window.confirm(`Restore "${cp.label}"? Uncommitted changes in this sandbox will be discarded.`)) return;
+    await apiFetch(`/api/sandbox/${active.id}/restore`, { method: 'POST', body: JSON.stringify({ sha: cp.sha, confirm: true }) }).catch(e => say(errMsg(e), 'error'));
+    say(`Restored checkpoint "${cp.label}"`, 'info'); refreshInspector(active.id);
+  };
+
+  const readonly = active?.mode === 'readonly';
+  const canCheckpoint = !!active && active.workspace_kind !== 'source';
+  const modeCap = caps?.modes[newMode];
+
+  const renderTree = (nodes: SandboxFileEntry[], depth = 0): React.ReactNode =>
+    nodes.map(n => (
+      <div key={n.path}>
+        <button onClick={() => n.type === 'file' && openFile(n.path)} style={{ paddingLeft: 6 + depth * 10 }}
+          className={clsx('w-full flex items-center gap-1 text-[10px] py-0.5 text-left hover:bg-slate-800', viewing?.path === n.path ? 'text-indigo-300' : 'text-slate-500')}>
+          {n.type === 'directory' ? <FolderOpen size={9} className="text-indigo-500/60" /> : <FileIcon size={9} className="text-slate-700" />}
+          <span className="truncate">{n.name}</span>
+        </button>
+        {n.children && renderTree(n.children, depth + 1)}
+      </div>
+    ));
 
   return (
-    <div className={clsx(
-      'border-t border-slate-700/50 bg-slate-900 flex flex-col transition-all duration-200',
-      expanded ? 'h-72' : 'h-9'
-    )}>
-      {/* Header */}
-      <div
-        className="flex items-center gap-2 px-4 h-9 flex-shrink-0 cursor-pointer hover:bg-slate-800/40 select-none"
-        onClick={() => setExpanded(e => !e)}
-      >
+    <div className={clsx('border-t border-slate-700/50 bg-slate-900 flex flex-col transition-all duration-200', expanded ? 'h-80' : 'h-9')}>
+      <div className="flex items-center gap-2 px-4 h-9 flex-shrink-0 cursor-pointer hover:bg-slate-800/40 select-none" onClick={() => setExpanded(e => !e)}>
         <Terminal size={12} className="text-slate-500" />
-        <span className="text-xs text-slate-500 font-medium">Sandbox Terminal</span>
-        {activeSandbox && (
-          <span className="text-[10px] text-slate-700 ml-1">{activeSandbox.name}</span>
-        )}
+        <span className="text-xs text-slate-500 font-medium">Sandbox</span>
+        {active && <span className="text-[10px] text-slate-600 ml-1">{active.name}</span>}
         <div className="ml-auto flex items-center gap-2">
           {running && <span className="text-[10px] text-yellow-500 animate-pulse">running…</span>}
           {expanded ? <ChevronDown size={12} className="text-slate-600" /> : <ChevronUp size={12} className="text-slate-600" />}
@@ -101,89 +179,97 @@ export default function SandboxPanel() {
 
       {expanded && (
         <div className="flex flex-1 min-h-0">
-          {/* Sandbox list */}
-          <div className="w-40 border-r border-slate-700/50 flex flex-col">
-            <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-700/50">
-              <span className="text-[10px] text-slate-600">Sandboxes</span>
-              <button onClick={createSandbox} className="text-slate-600 hover:text-indigo-400 transition-colors" title="New sandbox">
-                <Plus size={10} />
+          {/* Sandbox list + creation */}
+          <div className="w-48 border-r border-slate-700/50 flex flex-col">
+            <div className="p-2 border-b border-slate-700/50 space-y-1">
+              <select value={newMode} onChange={e => setNewMode(e.target.value as SandboxMode)}
+                className="w-full bg-slate-800 text-[10px] text-slate-300 rounded px-1 py-1 focus:outline-none">
+                {(Object.keys(MODE_LABEL) as SandboxMode[]).map(m => (
+                  <option key={m} value={m} disabled={caps ? !caps.modes[m]?.available : false}>{MODE_LABEL[m]}{caps && !caps.modes[m]?.available ? ' (unavailable)' : ''}</option>
+                ))}
+              </select>
+              <button onClick={createSandbox} className="w-full flex items-center justify-center gap-1 text-[10px] text-indigo-400 hover:bg-slate-800 rounded py-1">
+                <Plus size={10} /> New sandbox
               </button>
+              {modeCap && <div className="flex gap-1 text-[9px] text-slate-600 leading-tight"><Shield size={9} className="flex-shrink-0 mt-0.5" /><span>{modeCap.enforcement}</span></div>}
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-thin">
-              {sandboxes.length === 0 && (
-                <button onClick={createSandbox}
-                  className="w-full px-2 py-2 text-[10px] text-indigo-400 hover:bg-slate-800 text-left">
-                  + New sandbox
-                </button>
-              )}
               {sandboxes.map(sb => (
-                <button key={sb.id}
-                  onClick={() => setActiveSandboxId(sb.id)}
-                  className={clsx(
-                    'w-full text-left px-2 py-1.5 text-[10px] transition-colors',
-                    activeSandboxId === sb.id ? 'bg-indigo-600/15 text-indigo-300' : 'text-slate-500 hover:bg-slate-800'
-                  )}>
+                <button key={sb.id} onClick={() => setActiveId(sb.id)}
+                  className={clsx('w-full text-left px-2 py-1.5 text-[10px] transition-colors', activeId === sb.id ? 'bg-indigo-600/15 text-indigo-300' : 'text-slate-500 hover:bg-slate-800')}>
                   <div className="truncate">{sb.name}</div>
-                  <div className="text-slate-700">{sb.mode}</div>
+                  <div className="text-slate-700">{sb.mode} · {sb.workspace_kind}</div>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Terminal area */}
+          {/* Main area */}
           <div className="flex-1 flex flex-col min-w-0">
-            {/* Output */}
-            <div ref={outputRef} className="flex-1 overflow-y-auto scrollbar-thin p-2 font-mono text-[11px] leading-relaxed">
-              {output.length === 0 && (
-                <div className="text-slate-700 mt-2">
-                  {activeSandboxId ? 'Ready. Type a command below.' : 'Create or select a sandbox to begin.'}
-                </div>
-              )}
-              {output.map((line, i) => (
-                <div key={i} className={clsx(
-                  line.type === 'info' ? 'text-slate-500' :
-                  line.type === 'stderr' ? 'text-yellow-500/80' :
-                  line.type === 'error' ? 'text-red-400' :
-                  'text-slate-300'
-                )}>
-                  {line.text}
-                </div>
+            <div className="flex items-center gap-1 px-2 border-b border-slate-700/30 h-7 flex-shrink-0">
+              {(['terminal', 'changes', 'files'] as Tab[]).map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={clsx('text-[10px] px-2 py-1 rounded capitalize', tab === t ? 'bg-slate-800 text-slate-200' : 'text-slate-600 hover:text-slate-400')}>
+                  {t}{t === 'changes' && git?.status.files.length ? ` (${git.status.files.length})` : ''}
+                </button>
               ))}
+              {active && <button onClick={deleteSandbox} className="ml-auto p-1 text-slate-700 hover:text-red-400" title="Delete sandbox"><Trash2 size={10} /></button>}
             </div>
 
-            {/* Input */}
-            <div className="border-t border-slate-700/30 flex items-center gap-2 px-2 py-1.5">
-              <span className="text-slate-600 font-mono text-[11px] flex-shrink-0">PS&gt;</span>
-              <input
-                value={command}
-                onChange={e => setCommand(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') execute(); }}
-                disabled={!activeSandboxId || running}
-                className="flex-1 bg-transparent text-[11px] font-mono text-slate-300 placeholder-slate-700 focus:outline-none"
-                placeholder={activeSandboxId ? 'Enter PowerShell command…' : 'Create a sandbox first'}
-              />
-              <button onClick={execute} disabled={!command.trim() || !activeSandboxId || running}
-                className="flex-shrink-0 p-1 text-slate-600 hover:text-indigo-400 disabled:opacity-30 transition-colors">
-                {running ? <Square size={11} /> : <Play size={11} />}
-              </button>
-              <button onClick={() => setOutput([])} className="flex-shrink-0 p-1 text-slate-700 hover:text-slate-500 transition-colors" title="Clear">
-                <Trash2 size={10} />
-              </button>
-            </div>
+            {tab === 'terminal' && (<>
+              <div ref={outputRef} className="flex-1 overflow-y-auto scrollbar-thin p-2 font-mono text-[11px] leading-relaxed">
+                {output.length === 0 && <div className="text-slate-700 mt-2">{active ? (readonly ? 'Read-only sandbox: browse files and changes; commands are disabled.' : 'Ready. Type a command below.') : 'Create or select a sandbox to begin.'}</div>}
+                {output.map((l, i) => (
+                  <div key={i} className={clsx(l.type === 'info' ? 'text-slate-500' : l.type === 'stderr' ? 'text-yellow-500/80' : l.type === 'error' ? 'text-red-400' : 'text-slate-300')}>{l.text}</div>
+                ))}
+              </div>
+              <div className="border-t border-slate-700/30 flex items-center gap-2 px-2 py-1.5">
+                <span className="text-slate-600 font-mono text-[11px]">$</span>
+                <input value={command} onChange={e => setCommand(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') execute(); }}
+                  disabled={!active || running || readonly}
+                  className="flex-1 bg-transparent text-[11px] font-mono text-slate-300 placeholder-slate-700 focus:outline-none"
+                  placeholder={!active ? 'Create a sandbox first' : readonly ? 'Commands disabled (read-only)' : 'Enter a command…'} />
+                {running
+                  ? <button onClick={stop} className="p-1 text-red-400 hover:text-red-300" title="Stop"><Square size={11} /></button>
+                  : <button onClick={() => execute()} disabled={!command.trim() || !active || readonly} className="p-1 text-slate-600 hover:text-indigo-400 disabled:opacity-30" title="Run"><Play size={11} /></button>}
+                <button onClick={() => setOutput([])} className="p-1 text-slate-700 hover:text-slate-500" title="Clear"><Trash2 size={10} /></button>
+              </div>
+            </>)}
+
+            {tab === 'changes' && (
+              <div className="flex-1 flex min-h-0">
+                <div className="flex-1 overflow-auto scrollbar-thin p-2 font-mono text-[10px] leading-snug">
+                  {!git?.status.isRepo && <div className="text-slate-700">Not a git workspace — no diff available.</div>}
+                  {git?.status.isRepo && git.status.files.length === 0 && <div className="text-slate-600">No changes.</div>}
+                  {git?.status.files.map(f => <div key={f.path} className="text-slate-400"><span className="text-indigo-400 mr-2">{f.status}</span>{f.path}</div>)}
+                  {git?.diff && <pre className="mt-2 whitespace-pre-wrap">{git.diff.split('\n').map((l, i) =>
+                    <div key={i} className={l.startsWith('+') && !l.startsWith('+++') ? 'text-green-400' : l.startsWith('-') && !l.startsWith('---') ? 'text-red-400' : l.startsWith('@@') ? 'text-cyan-400' : 'text-slate-500'}>{l}</div>)}</pre>}
+                  {git?.truncated && <div className="text-yellow-600 mt-1">Diff truncated.</div>}
+                </div>
+                <div className="w-44 border-l border-slate-700/50 p-2 overflow-y-auto scrollbar-thin">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-slate-600 flex items-center gap-1"><GitBranch size={9} />Checkpoints</span>
+                    <button onClick={checkpoint} disabled={!canCheckpoint} title={canCheckpoint ? 'Create checkpoint' : 'Unavailable in read-only/direct mode'} className="text-slate-600 hover:text-indigo-400 disabled:opacity-30"><Save size={10} /></button>
+                  </div>
+                  {checkpoints.map(cp => (
+                    <div key={cp.sha} className="flex items-center gap-1 text-[10px] text-slate-500 py-0.5">
+                      <span className="truncate flex-1" title={cp.created_at}>{cp.label}</span>
+                      <button onClick={() => restore(cp)} className="text-slate-700 hover:text-yellow-400" title="Restore"><RotateCcw size={9} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tab === 'files' && (
+              <div className="flex-1 flex min-h-0">
+                <div className="w-48 border-r border-slate-700/50 overflow-y-auto scrollbar-thin py-1">{files.length ? renderTree(files) : <div className="text-[10px] text-slate-700 p-2">No files.</div>}</div>
+                <pre className="flex-1 overflow-auto scrollbar-thin p-2 text-[10px] font-mono text-slate-300 whitespace-pre-wrap">
+                  {viewing ? (viewing.content ?? viewing.note) : <span className="text-slate-700">Select a file to preview.</span>}
+                </pre>
+              </div>
+            )}
           </div>
-
-          {/* File tree */}
-          {files.length > 0 && (
-            <div className="w-36 border-l border-slate-700/50 overflow-y-auto scrollbar-thin p-2">
-              <div className="text-[10px] text-slate-600 mb-1">Files</div>
-              {(files as Array<{ name: string; type: string; size: number }>).map((f, i) => (
-                <div key={i} className="flex items-center gap-1 text-[10px] text-slate-500 py-0.5">
-                  <FolderOpen size={9} className={f.type === 'directory' ? 'text-indigo-500/60' : 'text-slate-700'} />
-                  <span className="truncate">{f.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

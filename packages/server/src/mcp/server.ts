@@ -6,6 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getDb } from '../db/index.js';
 import { searchMemory } from '../memory/search.js';
+import { projectClause } from '../memory/projectScope.js';
 
 interface McpTool {
   name: string;
@@ -179,28 +180,22 @@ function callTool(name: string, args: Record<string, unknown>): unknown {
 
     case 'find_solution': {
       const { problem, project_id } = args as { problem: string; project_id?: string };
-      let sql = 'SELECT * FROM solutions WHERE problem LIKE ? OR fix LIKE ?';
-      const params: unknown[] = [`%${problem}%`, `%${problem}%`];
-      if (project_id) { sql += ' AND project_id=?'; params.push(project_id); }
-      sql += ' ORDER BY verified_at DESC LIMIT 5';
-      return db.prepare(sql).all(...params);
+      const c = projectClause({ projectId: project_id });
+      return db.prepare(`SELECT * FROM solutions WHERE ${c.sql} AND (problem LIKE ? OR fix LIKE ?) ORDER BY verified_at DESC LIMIT 5`)
+        .all(...c.args, `%${problem}%`, `%${problem}%`);
     }
 
     case 'find_failed_approaches': {
       const { context, project_id } = args as { context: string; project_id?: string };
-      let sql = 'SELECT * FROM failures WHERE approach LIKE ? OR reason LIKE ?';
-      const params: unknown[] = [`%${context}%`, `%${context}%`];
-      if (project_id) { sql += ' AND project_id=?'; params.push(project_id); }
-      return db.prepare(sql).all(...params);
+      const c = projectClause({ projectId: project_id });
+      return db.prepare(`SELECT * FROM failures WHERE ${c.sql} AND (approach LIKE ? OR reason LIKE ?) ORDER BY created_at DESC LIMIT 10`)
+        .all(...c.args, `%${context}%`, `%${context}%`);
     }
 
     case 'get_decisions': {
       const { project_id, status = 'active' } = args as { project_id?: string; status?: string };
-      let sql = 'SELECT * FROM decisions WHERE status=?';
-      const params: unknown[] = [status];
-      if (project_id) { sql += ' AND project_id=?'; params.push(project_id); }
-      sql += ' ORDER BY created_at DESC LIMIT 20';
-      return db.prepare(sql).all(...params);
+      const c = projectClause({ projectId: project_id });
+      return db.prepare(`SELECT * FROM decisions WHERE status=? AND ${c.sql} ORDER BY created_at DESC LIMIT 20`).all(status, ...c.args);
     }
 
     case 'list_projects':
@@ -243,11 +238,12 @@ function callTool(name: string, args: Record<string, unknown>): unknown {
     }
 
     case 'check_prior_work': {
-      const { intent, project_id } = args as { intent: string; project_id?: string };
-      const q = (intent as string).slice(0, 100);
-      const mem = db.prepare(`SELECT title, content FROM memory_entries WHERE ${project_id ? 'project_id=? AND ' : ''}(title LIKE ? OR content LIKE ?) LIMIT 3`).all(...(project_id ? [project_id] : []), `%${q}%`, `%${q}%`);
-      const sol = db.prepare(`SELECT problem, fix FROM solutions WHERE ${project_id ? 'project_id=? AND ' : ''}(problem LIKE ? OR fix LIKE ?) LIMIT 3`).all(...(project_id ? [project_id] : []), `%${q}%`, `%${q}%`);
-      const fail = db.prepare(`SELECT approach, reason FROM failures WHERE ${project_id ? 'project_id=? AND ' : ''}(approach LIKE ?) LIMIT 2`).all(...(project_id ? [project_id] : []), `%${q}%`);
+      const { intent, project_id, person_id } = args as { intent: string; project_id?: string; person_id?: string };
+      const q = `%${String(intent).slice(0, 100)}%`;
+      const c = projectClause({ projectId: project_id });
+      const mem = searchMemory(String(intent), { projectId: project_id, personId: person_id }, 3).map(m => ({ title: m.title, content: m.content }));
+      const sol = db.prepare(`SELECT problem, fix FROM solutions WHERE ${c.sql} AND (problem LIKE ? OR fix LIKE ?) LIMIT 3`).all(...c.args, q, q);
+      const fail = db.prepare(`SELECT approach, reason FROM failures WHERE ${c.sql} AND approach LIKE ? LIMIT 2`).all(...c.args, q);
       return { intent, prior_work: { memory: mem, solutions: sol, failures: fail }, has_prior_work: mem.length + sol.length + fail.length > 0 };
     }
 

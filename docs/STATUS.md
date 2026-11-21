@@ -1,6 +1,6 @@
 # AImax — Build Status vs. Master Prompt
 
-_Last analysed: 2026-11-21. Method: read all source, type-checked, started the server and exercised the API.
+_Last updated: 2026-11-21 (stage 2: hardening + real sandbox). Method: read all source, type-checked, started the server and exercised the API.
 Nothing below is marked ✅ unless it was run._
 
 ## Verdict
@@ -15,14 +15,15 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 | # | Phase | State | Evidence / gap |
 |---|-------|-------|----------------|
 | 1 | Environment discovery | 🟡 | `aimax doctor` checks tool versions. Provider versions in `providers.ts` are **hard-coded**, not discovered. No capability matrix. |
-| 2 | Foundation | 🟡 | Fastify + SQLite (WAL). No migrations framework, no logging config, **no tests (until now)**. |
+| 2 | Foundation | 🟡 | Fastify + SQLite (WAL), **versioned migrations** (`PRAGMA user_version`), allow-listed updates, 31 server tests. Still missing: logging config, client tests, CI. |
 | 3 | Interactive UI | 🟡 | 3-pane layout, chat streaming, sidebar. Not browser-verified. No resizable panels, bottom console, artifact viewer. |
 | 4 | Project intelligence | 🟡 | CRUD + switching. Missing: dashboard, templates, per-project memory settings. |
 | 5 | Person intelligence | 🟡 | CRUD. Missing: dashboard, aliases, merge, retention, task ownership UI. |
 | 6 | Project–person | 🟡 | `project_people` join + combined scope in UI. No relationship queries / graph. |
 | 7 | Attachments | 🟡 | Upload saves to disk. **No extraction, preview, archive safety checks.** |
-| 8 | Real sandbox | ❌→stub | `executor.ts` runs host PowerShell with full env. **No isolation** (no container, no limits, no non-admin). Modes are labels only. |
-| 9–10 | Terminal / Git / Playwright | ❌ | Execute endpoint only. No Git review, checkpoints, preview, browser automation. |
+| 8 | Real sandbox | ✅ process-level · 🟡 container | Modes `readonly`/`temporary`/`container`/`direct` are enforced and tested (scrubbed env, timeout + process-tree kill, output cap, path-escape/symlink guard, approval for direct, confirm for destructive). **Temporary mode is NOT a security boundary** (runs as your OS user). **Container mode is implemented but NOT VERIFIED** — no Docker daemon was available to test; its test runs when `AIMAX_TEST_DOCKER_IMAGE` is set. Memory/CPU *reporting* and pause/resume/snapshot not built. |
+| 9 | Terminal / file explorer / git / checkpoints | ✅ API · 🟡 UI | Streaming terminal with Stop, file tree + viewer, git status/diff, checkpoints + restore (tested over HTTP). UI compiles and builds but **was not visually verified in a browser**. No app preview / port detection yet. |
+| 10 | Playwright | ❌ | |
 | 11 | Gateway / prompt enhancement | ❌ | Chat just forwards last 20 msgs + 5 memory rows. |
 | 12 | MemoryVault | ✅ (this stage) | FTS5 + triggers, strict scope enforcement, tests. Missing: provenance workflow, staleness, auditor. |
 | 13 | Engineering knowledge | 🟡 | Decisions/solutions/failures CRUD; fingerprint uses `LIKE`. |
@@ -41,20 +42,30 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 ## Defects found (and status)
 1. **FIXED** — Deleting a memory entry corrupted the FTS index → every later search 500'd (`SQLITE_CORRUPT_VTAB`). Now trigger-maintained; index rebuilt on startup (repairs existing DBs).
 2. **FIXED** — Privacy leak: retrieval used `project_id IS NULL OR …`, so any entry with a NULL id matched every context, and MCP `search_memory` had no scoping. Now one scope module (`memory/scope.ts`) used by chat, REST and MCP; 9 tests cover the matrix.
-3. **OPEN** — `PATCH` routes build `SET col=?` from request-body *keys* (SQL-injection via column names) in projects, conversations, decisions.
-4. **OPEN** — Sandbox executes arbitrary commands unrestricted; conflicts with prompt rules 27/28 until real isolation exists.
-5. **OPEN** — Conversations/messages/attachments are not scope-filtered; decisions/solutions/failures/tasks queries ignore person scope.
+3. **FIXED** — `PATCH` routes interpolated request-body keys into SQL. Now one allow-listed `updateRow()` (hostile keys ignored; tested).
+4. **PARTLY FIXED** — Sandbox now has guards (see Phase 8), but untrusted code must use `container` mode, which is unverified. Do not run untrusted code in `temporary` mode.
+5. **PARTLY FIXED** — decisions/solutions/failures/discoveries, fingerprint and MCP tools are now project-scoped (no project ⇒ global rows only; tested). **Still open:** person scope on decisions, conversations/messages/attachments/tasks listings are unfiltered (they are only used for the owner's own UI, but must be scoped before any provider handoff/export).
 6. **OPEN** — Hard-coded `D:\…` paths (pixelslop, LinkVault) and fake provider versions; should come from config/discovery.
 7. **OPEN** — Windows-only paths (`AppData\Roaming`); now overridable with `AIMAX_DATA_DIR`.
 
-## Done this stage
+## Stage 2 — what changed
+- `db/update.ts` allow-listed updates; `memory/projectScope.ts`; migrations v1 (sandbox columns + `sandbox_runs`)
+- `sandbox/guard.ts` (path guard, env scrub, destructive-command detector), `runner.ts` (spawn, timeout, tree kill, cancel, cap, optional docker), `workspace.ts` (worktree/copy, git status/diff, checkpoints, restore, cleanup)
+- `routes/sandbox.ts`: capabilities, create (4 modes), execute, **SSE run + cancel**, run history, files, file read, git, checkpoints, restore, delete
+- Bug found by tests and fixed: streaming runs were cancelled instantly (`req` close fires after body read)
+- `SandboxPanel.tsx` rebuilt: mode picker with approval, streaming terminal + Stop, Changes (diff/checkpoints), Files (viewer)
+- Removed `executor.ts` (old unrestricted runner)
+- Environment note: the committed `package-lock.json` was generated on Windows; on Linux `npm i` needs `@rollup/rollup-linux-x64-gnu` for the client build (not added to the lockfile).
+
+## Done in stage 1
 - FTS triggers + rebuild-on-start, `AIMAX_DATA_DIR`
 - `memory/scope.ts`, `memory/search.ts` (strict scope, safe FTS query builder)
 - Chat, `/api/memory`, MCP `search_memory` routed through them
 - `npm test` (9 passing), `npm run typecheck`
 
 ## Recommended next stage
-**Phase 8 — real sandbox foundation** (the prompt's first-milestone blocker), preceded by closing defects 3 and 5:
-1. Allow-listed PATCH helper; scope filters on conversations/messages/decisions/solutions/tasks (+ tests).
-2. Sandbox: git-worktree/temp-copy mode with env scrubbing, timeouts + process-tree kill, output caps, path-escape guard, SSE streaming and cancel; Docker mode only if Docker is detected. Isolation claims must be backed by tests.
-3. Then Phase 9 (file explorer, git diff, checkpoints) to reach the "first working milestone" in §151.
+1. **Verify container mode** on your Windows machine (Docker Desktop): `set AIMAX_TEST_DOCKER_IMAGE=node:22-slim && npm test`. Until that passes, treat container isolation as unproven.
+2. **Browser-verify the UI** (first-milestone §151 steps 1–18) with Playwright: create project → person → link → conversation → attach → sandbox run → restart → resume.
+3. **Phase 7 attachments**: text extraction (PDF/DOCX/CSV/…), previews, zip-slip/decompression-bomb guards, scoped storage.
+4. **Phase 11/18**: a real gateway (task classification, deterministic prompt enhancement, context budget) and a Claude adapter with sessions/streaming/cancel instead of re-sending history through `claude -p`.
+5. Make `/mcp` a real MCP server (JSON-RPC over stdio/streamable HTTP) so Claude Code can attach it.

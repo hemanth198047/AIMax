@@ -47,7 +47,15 @@ export interface MemoryEntry {
   confidence: number; tags: string; created_at: string; updated_at: string;
 }
 
+export type SandboxMode = 'readonly' | 'temporary' | 'container' | 'direct';
 export interface Sandbox {
-  id: string; name: string; project_id: string | null; mode: string;
+  id: string; name: string; project_id: string | null; mode: SandboxMode;
   working_dir: string; status: string; created_at: string; last_used: string;
+  source_path?: string; workspace_kind?: string; approved_at?: string | null; container_image?: string;
 }
+export interface SandboxCapabilities {
+  modes: Record<SandboxMode, { available: boolean; enforcement: string; detail?: string }>;
+}
+export interface SandboxFileEntry { name: string; path: string; type: 'file' | 'directory'; size: number; children?: SandboxFileEntry[] }
+export interface SandboxGit { status: { isRepo: boolean; files: { status: string; path: string }[] }; diff: string; truncated: boolean }
+export interface SandboxCheckpoint { sha: string; created_at: string; label: string }

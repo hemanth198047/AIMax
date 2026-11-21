@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
+import { updateRow } from '../db/update.js';
 
 export async function peopleRoutes(app: FastifyInstance) {
   app.get('/api/people', async () => getDb().prepare('SELECT * FROM people ORDER BY display_name').all());
@@ -25,12 +26,10 @@ export async function peopleRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/people/:id', async (req, reply) => {
-    const db = getDb();
-    const updates = { ...req.body, updated_at: new Date().toISOString() };
-    const keys = Object.keys(updates);
-    if (!keys.length) return reply.status(400).send({ error: 'No fields' });
-    db.prepare(`UPDATE people SET ${keys.map(k => `${k}=?`).join(',')} WHERE id=?`).run(...Object.values(updates), req.params.id);
-    return db.prepare('SELECT * FROM people WHERE id=?').get(req.params.id);
+    const row = updateRow('people', req.params.id, req.body);
+    if (row === 'empty') return reply.status(400).send({ error: 'No updatable fields supplied' });
+    if (!row) return reply.status(404).send({ error: 'Not found' });
+    return row;
   });
 
   app.delete<{ Params: { id: string } }>('/api/people/:id', async (req, reply) => {

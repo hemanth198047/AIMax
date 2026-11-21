@@ -16,6 +16,7 @@ export function getDb(): Database.Database {
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
   applySchema(_db);
+  migrate(_db);
   return _db;
 }
 
@@ -230,4 +231,43 @@ function applySchema(db: Database.Database) {
   `);
   // Repair any index corrupted by earlier versions
   db.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')");
+}
+
+function hasColumn(db: Database.Database, table: string, col: string): boolean {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(c => c.name === col);
+}
+
+/** Versioned migrations on top of the idempotent baseline schema (tracked with PRAGMA user_version). */
+const MIGRATIONS: Array<(db: Database.Database) => void> = [
+  // v1: real sandbox — source path, kind of workspace, direct-mode approval, run history
+  (db) => {
+    for (const [col, ddl] of [
+      ['source_path', "TEXT DEFAULT ''"],
+      ['workspace_kind', "TEXT DEFAULT 'dir'"],   // dir | worktree | copy | source
+      ['approved_at', "TEXT DEFAULT NULL"],
+      ['container_image', "TEXT DEFAULT ''"],
+    ] as const) {
+      if (!hasColumn(db, 'sandboxes', col)) db.exec(`ALTER TABLE sandboxes ADD COLUMN ${col} ${ddl}`);
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sandbox_runs (
+        id TEXT PRIMARY KEY,
+        sandbox_id TEXT NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
+        command TEXT NOT NULL,
+        exit_code INTEGER,
+        status TEXT DEFAULT 'running',      -- running | done | timeout | cancelled | error
+        truncated INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        started_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_runs_sandbox ON sandbox_runs(sandbox_id);
+    `);
+  },
+];
+
+function migrate(db: Database.Database) {
+  const current = db.pragma('user_version', { simple: true }) as number;
+  for (let v = current; v < MIGRATIONS.length; v++) {
+    db.transaction(() => { MIGRATIONS[v](db); db.pragma(`user_version = ${v + 1}`); })();
+  }
 }

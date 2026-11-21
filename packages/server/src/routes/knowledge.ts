@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
+import { updateRow } from '../db/update.js';
+import { projectClause, personClause } from '../memory/projectScope.js';
+import { searchMemory } from '../memory/search.js';
 
 // Phase 13: Discovery Ledger, DecisionVault, Solution Replay, Failure Memory, Task Fingerprinting
 
@@ -12,7 +15,7 @@ export async function knowledgeRoutes(app: FastifyInstance) {
     const db = getDb();
     let sql = 'SELECT * FROM discoveries WHERE 1=1';
     const args: unknown[] = [];
-    if (project_id) { sql += ' AND project_id=?'; args.push(project_id); }
+    { const c = projectClause({ projectId: project_id }); sql += ' AND ' + c.sql; args.push(...c.args); }
     if (type) { sql += ' AND type=?'; args.push(type); }
     if (q) { sql += ' AND (name LIKE ? OR description LIKE ?)'; args.push(`%${q}%`, `%${q}%`); }
     sql += ' ORDER BY updated_at DESC LIMIT 100';
@@ -40,7 +43,7 @@ export async function knowledgeRoutes(app: FastifyInstance) {
     const db = getDb();
     let sql = 'SELECT * FROM decisions WHERE 1=1';
     const args: unknown[] = [];
-    if (project_id) { sql += ' AND project_id=?'; args.push(project_id); }
+    { const c = projectClause({ projectId: project_id }); sql += ' AND ' + c.sql; args.push(...c.args); }
     if (status) { sql += ' AND status=?'; args.push(status); }
     if (q) { sql += ' AND (title LIKE ? OR rationale LIKE ?)'; args.push(`%${q}%`, `%${q}%`); }
     sql += ' ORDER BY created_at DESC LIMIT 100';
@@ -64,12 +67,11 @@ export async function knowledgeRoutes(app: FastifyInstance) {
     return db.prepare('SELECT * FROM decisions WHERE id=?').get(id);
   });
 
-  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/decisions/:id', async (req) => {
-    const db = getDb();
-    const updates = { ...req.body };
-    const keys = Object.keys(updates);
-    if (keys.length) db.prepare(`UPDATE decisions SET ${keys.map(k => `${k}=?`).join(',')} WHERE id=?`).run(...Object.values(updates), req.params.id);
-    return db.prepare('SELECT * FROM decisions WHERE id=?').get(req.params.id);
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/decisions/:id', async (req, reply) => {
+    const row = updateRow('decisions', req.params.id, req.body);
+    if (row === 'empty') return reply.status(400).send({ error: 'No updatable fields supplied' });
+    if (!row) return reply.status(404).send({ error: 'Not found' });
+    return row;
   });
 
   app.delete<{ Params: { id: string } }>('/api/decisions/:id', async (req, reply) => {
@@ -84,7 +86,7 @@ export async function knowledgeRoutes(app: FastifyInstance) {
     const db = getDb();
     let sql = 'SELECT * FROM solutions WHERE 1=1';
     const args: unknown[] = [];
-    if (project_id) { sql += ' AND project_id=?'; args.push(project_id); }
+    { const c = projectClause({ projectId: project_id }); sql += ' AND ' + c.sql; args.push(...c.args); }
     if (q) { sql += ' AND (problem LIKE ? OR fix LIKE ? OR tags LIKE ?)'; args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
     sql += ' ORDER BY verified_at DESC LIMIT 50';
     return db.prepare(sql).all(...args);
@@ -120,7 +122,7 @@ export async function knowledgeRoutes(app: FastifyInstance) {
     const db = getDb();
     let sql = 'SELECT * FROM failures WHERE 1=1';
     const args: unknown[] = [];
-    if (project_id) { sql += ' AND project_id=?'; args.push(project_id); }
+    { const c = projectClause({ projectId: project_id }); sql += ' AND ' + c.sql; args.push(...c.args); }
     if (q) { sql += ' AND (approach LIKE ? OR reason LIKE ?)'; args.push(`%${q}%`, `%${q}%`); }
     sql += ' ORDER BY created_at DESC LIMIT 50';
     return db.prepare(sql).all(...args);
@@ -140,31 +142,22 @@ export async function knowledgeRoutes(app: FastifyInstance) {
   });
 
   // ─── Task Fingerprinting (check for duplicate/similar tasks) ────────
-  app.post<{ Body: { intent: string; project_id?: string } }>('/api/fingerprint', async (req) => {
+  app.post<{ Body: { intent: string; project_id?: string; person_id?: string } }>('/api/fingerprint', async (req) => {
     const db = getDb();
-    const { intent, project_id } = req.body;
-    const q = intent.slice(0, 100);
+    const { intent, project_id, person_id } = req.body;
+    const ctx = { projectId: project_id, personId: person_id };
+    const q = `%${intent.slice(0, 100)}%`;
+    const pc = projectClause(ctx);
 
-    // FTS search across memory, solutions, decisions
-    const memMatches = db.prepare(`
-      SELECT 'memory' as source, title, content FROM memory_entries
-      WHERE ${project_id ? "project_id=? AND " : ""}(title LIKE ? OR content LIKE ?)
-      LIMIT 3`).all(...(project_id ? [project_id] : []), `%${q}%`, `%${q}%`) as Array<{ source: string; title: string; content: string }>;
+    const memMatches = searchMemory(intent, ctx, 3).map(m => ({ source: 'memory', title: m.title, content: m.content }));
+    const solMatches = db.prepare(
+      `SELECT 'solution' as source, problem as title, fix as content FROM solutions
+       WHERE ${pc.sql} AND (problem LIKE ? OR fix LIKE ?) LIMIT 3`).all(...pc.args, q, q) as Array<{ source: string; title: string; content: string }>;
+    const failMatches = db.prepare(
+      `SELECT 'failure' as source, approach as title, reason as content FROM failures
+       WHERE ${pc.sql} AND (approach LIKE ? OR reason LIKE ?) LIMIT 2`).all(...pc.args, q, q) as Array<{ source: string; title: string; content: string }>;
 
-    const solMatches = db.prepare(`
-      SELECT 'solution' as source, problem as title, fix as content FROM solutions
-      WHERE ${project_id ? "project_id=? AND " : ""}(problem LIKE ? OR fix LIKE ?)
-      LIMIT 3`).all(...(project_id ? [project_id] : []), `%${q}%`, `%${q}%`) as Array<{ source: string; title: string; content: string }>;
-
-    const failMatches = db.prepare(`
-      SELECT 'failure' as source, approach as title, reason as content FROM failures
-      WHERE ${project_id ? "project_id=? AND " : ""}(approach LIKE ? OR reason LIKE ?)
-      LIMIT 2`).all(...(project_id ? [project_id] : []), `%${q}%`, `%${q}%`) as Array<{ source: string; title: string; content: string }>;
-
-    return {
-      query: intent,
-      existing_work: [...memMatches, ...solMatches, ...failMatches],
-      has_prior_work: memMatches.length + solMatches.length + failMatches.length > 0
-    };
+    const existing = [...memMatches, ...solMatches, ...failMatches];
+    return { query: intent, existing_work: existing, has_prior_work: existing.length > 0 };
   });
 }

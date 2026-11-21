@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
+import { updateRow } from '../db/update.js';
 
 export async function projectsRoutes(app: FastifyInstance) {
   app.get('/api/projects', async () => {
@@ -29,12 +30,10 @@ export async function projectsRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/projects/:id', async (req, reply) => {
-    const db = getDb();
-    const updates: Record<string, unknown> = { ...req.body, updated_at: new Date().toISOString() };
-    const keys = Object.keys(updates);
-    if (!keys.length) return reply.status(400).send({ error: 'No fields' });
-    db.prepare(`UPDATE projects SET ${keys.map(k => `${k}=?`).join(',')} WHERE id=?`).run(...Object.values(updates), req.params.id);
-    return db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+    const row = updateRow('projects', req.params.id, req.body);
+    if (row === 'empty') return reply.status(400).send({ error: 'No updatable fields supplied' });
+    if (!row) return reply.status(404).send({ error: 'Not found' });
+    return row;
   });
 
   app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
