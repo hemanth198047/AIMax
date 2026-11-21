@@ -1,3 +1,4 @@
+import { loadConversations } from './api/conversations';
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -14,7 +15,7 @@ import type { Project, Person, Conversation } from './api/client';
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
 
 function MainLayout() {
-  const { setProjects, setPeople, setConversations, reconcile } = useAppStore();
+  const { setProjects, setPeople, reconcile } = useAppStore();
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showLinkVault, setShowLinkVault] = useState(false);
 
@@ -22,9 +23,11 @@ function MainLayout() {
     Promise.all([
       apiFetch<Project[]>('/api/projects').then(setProjects),
       apiFetch<Person[]>('/api/people').then(setPeople),
-      apiFetch<Conversation[]>('/api/conversations').then(setConversations),
-    ]).then(reconcile).catch(console.error);
+    ]).then(reconcile).then(loadConversations).catch(console.error);
   }, []);
+
+  const { activeProjectId, activePersonId } = useAppStore();
+  useEffect(() => { loadConversations().catch(console.error); }, [activeProjectId, activePersonId]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-900 text-slate-100">

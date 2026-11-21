@@ -28,7 +28,7 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 | 12 | MemoryVault | ✅ (this stage) | FTS5 + triggers, strict scope enforcement, tests. Missing: provenance workflow, staleness, auditor. |
 | 13 | Engineering knowledge | 🟡 | Decisions/solutions/failures CRUD; fingerprint uses `LIKE`. |
 | 14–16 | Caching, graphs, continuity | ❌ | |
-| 17 | MCP server | 🟡 | 11 tools over plain HTTP (`/mcp/call`). **Not real MCP protocol (no JSON-RPC/stdio)**, so Claude Code cannot attach it as-is. Generated config snippet is not valid. |
+| 17 | MCP server | 🟡 protocol tested · real client handshake only | Real MCP (JSON-RPC 2.0) over **stdio** (`packages/server/src/mcp/stdio.ts`) and `POST /mcp`: initialize, ping, tools/list, tools/call (tool errors as `isError`). The stdio server is **pinned** to one project/person via env; tool arguments cannot widen it, lists are restricted to that scope, and writes land at exactly that scope with provenance `inferred`. Tested by spawning the real process (5 tests). `claude mcp list` reported it **Connected** (handshake only — no model call, so tool use from a real Claude session is unverified). `GET /mcp/config?project_id=&person_id=` generates the config; it needs `npx tsx` and the repo checked out. Legacy `/mcp/call` is unpinned and unauthenticated (localhost only). |
 | 18 | Claude adapter | 🟡 **real CLI UNVERIFIED** | `claude -p --output-format stream-json` streaming, session resume (new turn only, falls back to full history), cancel (Stop kills the process and saves the partial answer), sessions bound to the exact project/person scope, all CLI tools disabled, empty cwd. Tested only against a **fake CLI** that emulates the assumed event format; flags came from `--help`, never run against a real Claude. The AI cannot touch the sandbox itself: it can only *propose* a command in an `aimax-run` block, which runs only after you click Run (verified in browser). Windows `.cmd` shim handling untested. |
 | 19–20 | Cursor / Codex | ❌ | Reported "unavailable". |
 | 21 | Subscription compliance | ❌ | Nothing tracks states/limits/zero-overage. |
@@ -47,6 +47,12 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 5. **PARTLY FIXED** — decisions/solutions/failures/discoveries, fingerprint and MCP tools are now project-scoped (no project ⇒ global rows only; tested). **Still open:** person scope on decisions, conversations/messages/attachments/tasks listings are unfiltered (they are only used for the owner's own UI, but must be scoped before any provider handoff/export).
 6. **OPEN** — Hard-coded `D:\…` paths (pixelslop, LinkVault) and fake provider versions; should come from config/discovery.
 7. **OPEN** — Windows-only paths (`AppData\Roaming`); now overridable with `AIMAX_DATA_DIR`.
+
+## Stage 5 — real MCP server + remaining scope gaps
+- MCP: see Phase 17 row. Old fake `/mcp/config` (an invalid stdin proxy) replaced.
+- **Privacy fixes**: `GET /api/conversations` and `/api/tasks` previously listed everything regardless of context; they now follow the memory scope rules (global / project / person / project+person), as do decisions (person scope added). New chats are created in the active context. Fixed a startup race where the persisted active conversation was cleared before the list loaded.
+- Tests: 56 server pass (1 Docker skip), 3 e2e pass (3 runs), type-check + build clean.
+- Still open: messages are fetchable by conversation id without a context check (ids are unguessable UUIDs, single local user); discoveries/solutions have no person scope; attachments are not context-gated.
 
 ## Stage 4 — gateway, Claude adapter, approval-gated sandbox use
 - 51 server tests (50 pass, 1 skipped = Docker), 3 Playwright tests pass (3 consecutive runs), client + server typecheck, vite build OK.
@@ -97,5 +103,5 @@ icon-only buttons had no accessible names.
    (and with Docker Desktop: `set AIMAX_TEST_DOCKER_IMAGE=node:22-slim`). Windows paths and container isolation are still unproven.
 2. **Verify the real Claude CLI** on your machine (send one short message with provider Claude and report what happens); the adapter has only seen a fake.
 3. **Phase 7 (rest)**: PDF/DOCX/XLSX extraction, previews, zip-slip/decompression guards, image handling.
-4. Real MCP server (JSON-RPC) so Claude Code can attach to the memory/project tools.
-5. Remaining scope gaps: conversations/messages/tasks listings and person scope on decisions.
+4. Try the MCP server from a real Claude Code session (`claude mcp add`, then ask it to search memory).
+5. Remaining scope gaps listed under Stage 5.

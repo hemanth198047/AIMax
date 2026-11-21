@@ -39,11 +39,12 @@ export async function knowledgeRoutes(app: FastifyInstance) {
 
   // ─── DecisionVault ──────────────────────────────────────────────────
   app.get('/api/decisions', async (req) => {
-    const { project_id, status, q } = req.query as Record<string, string>;
+    const { project_id, person_id, status, q } = req.query as Record<string, string>;
     const db = getDb();
     let sql = 'SELECT * FROM decisions WHERE 1=1';
     const args: unknown[] = [];
     { const c = projectClause({ projectId: project_id }); sql += ' AND ' + c.sql; args.push(...c.args); }
+    { const c = personClause({ personId: person_id }); sql += ' AND ' + c.sql; args.push(...c.args); }
     if (status) { sql += ' AND status=?'; args.push(status); }
     if (q) { sql += ' AND (title LIKE ? OR rationale LIKE ?)'; args.push(`%${q}%`, `%${q}%`); }
     sql += ' ORDER BY created_at DESC LIMIT 100';

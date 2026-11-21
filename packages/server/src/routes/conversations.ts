@@ -2,17 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
 import { updateRow } from '../db/update.js';
+import { bothClause } from '../memory/projectScope.js';
 
 export async function conversationsRoutes(app: FastifyInstance) {
   app.get('/api/conversations', async (req) => {
-    const { project_id, person_id, scope } = req.query as Record<string, string>;
+    // Only conversations visible in the active context are listed (same rules as memory).
+    const { project_id, person_id } = req.query as Record<string, string>;
     const db = getDb();
-    let sql = 'SELECT * FROM conversations WHERE archived=0';
-    const args: unknown[] = [];
-    if (scope) { sql += ' AND scope=?'; args.push(scope); }
-    if (project_id) { sql += ' AND project_id=?'; args.push(project_id); }
-    if (person_id) { sql += ' AND person_id=?'; args.push(person_id); }
-    sql += ' ORDER BY pinned DESC, updated_at DESC';
+    const c = bothClause({ projectId: project_id, personId: person_id });
+    const sql = `SELECT * FROM conversations WHERE archived=0 AND ${c.sql} ORDER BY pinned DESC, updated_at DESC`;
+    const args: unknown[] = c.args;
     return db.prepare(sql).all(...args);
   });
 

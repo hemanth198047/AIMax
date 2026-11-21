@@ -68,10 +68,10 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   reconcile: () => set((s) => {
     const projectOk = !s.activeProjectId || s.projects.some(p => p.id === s.activeProjectId);
     const personOk = !s.activePersonId || s.people.some(p => p.id === s.activePersonId);
-    const convOk = !s.activeConversationId || s.conversations.some(c => c.id === s.activeConversationId);
     const activeProjectId = projectOk ? s.activeProjectId : null;
     const activePersonId = personOk ? s.activePersonId : null;
-    return { activeProjectId, activePersonId, activeConversationId: convOk ? s.activeConversationId : null,
+    return { activeProjectId, activePersonId, activeConversationId: s.activeConversationId, // validated by loadConversations() against the context-visible list
+     
       scope: computeScope(activeProjectId, activePersonId) };
   }),
 }), {

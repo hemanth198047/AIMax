@@ -1,16 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
+import { bothClause } from '../memory/projectScope.js';
 import { updateRow } from '../db/update.js';
 
 export async function tasksRoutes(app: FastifyInstance) {
   app.get('/api/tasks', async (req) => {
     const { project_id, person_id, status } = req.query as Record<string, string>;
     const db = getDb();
-    let sql = 'SELECT * FROM tasks WHERE 1=1';
-    const args: unknown[] = [];
-    if (project_id) { sql += ' AND project_id=?'; args.push(project_id); }
-    if (person_id) { sql += ' AND person_id=?'; args.push(person_id); }
+    const c = bothClause({ projectId: project_id, personId: person_id });
+    let sql = `SELECT * FROM tasks WHERE ${c.sql}`;
+    const args: unknown[] = [...c.args];
     if (status) { sql += ' AND status=?'; args.push(status); }
     sql += ' ORDER BY created_at DESC';
     return db.prepare(sql).all(...args);

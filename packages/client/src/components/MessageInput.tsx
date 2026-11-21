@@ -1,3 +1,4 @@
+import { loadConversations } from '../api/conversations';
 import React, { useState, useRef, useCallback } from 'react';
 import { Send, Paperclip, Square, X } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
@@ -113,7 +114,7 @@ export default function MessageInput({ conversationId }: Props) {
           for (let i = 0; i < 6 && msgs.length === had; i++) { await new Promise(r => setTimeout(r, 250)); msgs = await load(); }
         }
         useChatStore.getState().setMessages(conversationId, msgs);
-        setConversations(await apiFetch<Conversation[]>('/api/conversations'));
+        await loadConversations();
       } catch { /* offline */ }
     }
   }, [input, attachments, conversationId, provider, enhance, activeProjectId, activePersonId, scope, streaming]);

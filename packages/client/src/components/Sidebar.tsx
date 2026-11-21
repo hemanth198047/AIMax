@@ -16,7 +16,7 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
   const {
     sidebarSection, setSidebarSection, conversations, projects, people,
     activeConversationId, setActiveConversation, setConversations,
-    activeProjectId, setActiveProject, activePersonId, setActivePerson
+    activeProjectId, setActiveProject, activePersonId, setActivePerson, scope
   } = useAppStore();
 
   const [showProjectCreate, setShowProjectCreate] = useState(false);
@@ -25,7 +25,7 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
   const createConversation = async () => {
     const conv = await apiFetch<Conversation>('/api/conversations', {
       method: 'POST',
-      body: JSON.stringify({ title: 'New Conversation' })
+      body: JSON.stringify({ title: 'New Conversation', scope, project_id: activeProjectId, person_id: activePersonId })
     });
     setConversations([conv, ...conversations]);
     setActiveConversation(conv.id);
