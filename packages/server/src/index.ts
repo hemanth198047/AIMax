@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
-import { homedir } from 'os';
+import { DATA_DIR } from './db/index.js';
 
 import { projectsRoutes } from './routes/projects.js';
 import { peopleRoutes } from './routes/people.js';
@@ -19,7 +19,7 @@ import { designiqRoutes } from './routes/designiq.js';
 import { mcpRoutes } from './mcp/server.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001');
-const UPLOADS_DIR = join(homedir(), 'AppData', 'Roaming', 'aimax', 'uploads');
+const UPLOADS_DIR = join(DATA_DIR, 'uploads');
 mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const app = Fastify({ logger: { level: 'info' } });

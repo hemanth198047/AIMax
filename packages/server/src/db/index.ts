@@ -3,7 +3,7 @@ import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 
-const DATA_DIR = join(homedir(), 'AppData', 'Roaming', 'aimax');
+export const DATA_DIR = process.env.AIMAX_DATA_DIR ?? join(homedir(), 'AppData', 'Roaming', 'aimax');
 mkdirSync(DATA_DIR, { recursive: true });
 
 export const DB_PATH = join(DATA_DIR, 'aimax.db');
@@ -109,6 +109,18 @@ function applySchema(db: Database.Database) {
       content='memory_entries',
       content_rowid='rowid'
     );
+
+    -- Keep the FTS index in sync automatically (manual inserts/deletes corrupted it)
+    CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory_entries BEGIN
+      INSERT INTO memory_fts(rowid,title,content,tags) VALUES (new.rowid,new.title,new.content,new.tags);
+    END;
+    CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memory_entries BEGIN
+      INSERT INTO memory_fts(memory_fts,rowid,title,content,tags) VALUES('delete',old.rowid,old.title,old.content,old.tags);
+    END;
+    CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memory_entries BEGIN
+      INSERT INTO memory_fts(memory_fts,rowid,title,content,tags) VALUES('delete',old.rowid,old.title,old.content,old.tags);
+      INSERT INTO memory_fts(rowid,title,content,tags) VALUES (new.rowid,new.title,new.content,new.tags);
+    END;
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
@@ -216,4 +228,6 @@ function applySchema(db: Database.Database) {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  // Repair any index corrupted by earlier versions
+  db.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')");
 }

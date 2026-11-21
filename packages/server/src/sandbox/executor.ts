@@ -1,9 +1,9 @@
 import { spawn } from 'child_process';
 import { join } from 'path';
 import { mkdirSync, readdirSync, statSync } from 'fs';
-import { homedir } from 'os';
+import { DATA_DIR } from '../db/index.js';
 
-const SANDBOXES_DIR = join(homedir(), 'AppData', 'Roaming', 'aimax', 'sandboxes');
+const SANDBOXES_DIR = join(DATA_DIR, 'sandboxes');
 
 export interface ExecuteResult {
   stdout: string;

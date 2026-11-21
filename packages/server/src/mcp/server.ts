@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { getDb } from '../db/index.js';
+import { searchMemory } from '../memory/search.js';
 
 interface McpTool {
   name: string;
@@ -152,22 +153,8 @@ function callTool(name: string, args: Record<string, unknown>): unknown {
 
   switch (name) {
     case 'search_memory': {
-      const { query, scope, project_id, person_id, limit = 10 } = args as Record<string, string | number>;
-      let sql = `SELECT * FROM memory_entries m
-        JOIN memory_fts f ON f.rowid = m.rowid
-        WHERE memory_fts MATCH ?`;
-      const params: unknown[] = [query];
-      if (scope) { sql += ' AND m.scope=?'; params.push(scope); }
-      if (project_id) { sql += ' AND (m.project_id IS NULL OR m.project_id=?)'; params.push(project_id); }
-      if (person_id) { sql += ' AND (m.person_id IS NULL OR m.person_id=?)'; params.push(person_id); }
-      sql += ' ORDER BY rank LIMIT ?';
-      params.push(Number(limit));
-      try {
-        return db.prepare(sql).all(...params);
-      } catch {
-        // Fallback to LIKE search
-        return db.prepare(`SELECT * FROM memory_entries WHERE title LIKE ? OR content LIKE ? LIMIT ?`).all(`%${query}%`, `%${query}%`, limit);
-      }
+      const { query, project_id, person_id, limit = 10 } = args as Record<string, string | number>;
+      return searchMemory(String(query), { projectId: project_id as string, personId: person_id as string }, Number(limit));
     }
 
     case 'get_project_context': {
@@ -230,9 +217,6 @@ function callTool(name: string, args: Record<string, unknown>): unknown {
       db.prepare('INSERT INTO memory_entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
         id, scope, project_id, person_id, type, title, content, provenance, 1.0, '[]', null, now, now
       );
-      try {
-        db.prepare('INSERT INTO memory_fts(rowid,title,content,tags) SELECT rowid,title,content,tags FROM memory_entries WHERE id=?').run(id);
-      } catch { /* skip FTS error */ }
       return { saved: true, id };
     }
 

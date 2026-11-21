@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
 import { autoChat } from '../providers/auto.js';
+import { searchMemory } from '../memory/search.js';
 
 interface ChatBody {
   conversationId?: string;
@@ -97,16 +98,9 @@ export async function chatRoutes(app: FastifyInstance) {
   });
 }
 
-function getMemoryContext(query: string, scope: string, projectId?: string, personId?: string): string {
+function getMemoryContext(query: string, _scope: string, projectId?: string, personId?: string): string {
   try {
-    const db = getDb();
-    const args: unknown[] = [scope];
-    let sql = `SELECT title, content FROM memory_entries
-      WHERE scope IN ('global', ?)`;
-    if (projectId) { sql += ' AND (project_id IS NULL OR project_id=?)'; args.push(projectId); }
-    if (personId) { sql += ' AND (person_id IS NULL OR person_id=?)'; args.push(personId); }
-    sql += ' ORDER BY updated_at DESC LIMIT 5';
-    const rows = db.prepare(sql).all(...args) as { title: string; content: string }[];
+    const rows = searchMemory(query, { projectId, personId }, 5);
     if (!rows.length) return '';
     return rows.map(r => `[${r.title}]: ${r.content}`).join('\n---\n');
   } catch {
