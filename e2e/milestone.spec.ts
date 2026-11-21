@@ -227,6 +227,12 @@ test('AI proposes a command → nothing runs until approved → runs in sandbox;
   expect(after).toHaveLength(1); expect(after[0].exit_code).toBe(0);
   await shot(page, '07-proposal-run');
 
+  // handoff summary (deterministic, from stored messages)
+  await page.getByLabel('Toggle handoff summary').click();
+  await expect(page.getByLabel('Handoff summary text')).toHaveValue(/What was asked[\s\S]*quokka-deploy rule[\s\S]*without a model/);
+  await page.getByLabel('Toggle handoff summary').click();
+  await expect(page.getByTestId('handoff')).toHaveCount(0);
+
   // enhancement off → no guidance block
   await page.getByLabel('Prompt enhancement').selectOption('off');
   const off = await askAndRead(page, 'fix the failing build in the whole codebase');

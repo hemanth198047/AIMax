@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ctxQs } from '../api/conversations';
 import React, { useEffect } from 'react';
 import { Sparkles, FolderOpen, User } from 'lucide-react';
@@ -11,6 +12,15 @@ import type { Message } from '../api/client';
 export default function ChatView() {
   const { activeConversationId, scope, activeProjectId, activePersonId, projects, people } = useAppStore();
   const { messages, setMessages, streaming, streamingText, streamingConvId, activity } = useChatStore();
+
+  const [handoff, setHandoff] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { setHandoff(null); setCopied(false); }, [activeConversationId]);
+  const openHandoff = async () => {
+    if (!activeConversationId) return;
+    try { setHandoff((await apiFetch<{ markdown: string }>(`/api/conversations/${activeConversationId}/handoff${ctxQs()}`)).markdown); }
+    catch (e) { setHandoff(`Could not build handoff: ${e instanceof Error ? e.message : e}`); }
+  };
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -74,6 +84,17 @@ export default function ChatView() {
         </div>
       )}
 
+      <div className="flex items-center justify-end px-4 py-1 border-b border-slate-800/60 flex-shrink-0">
+        <button onClick={() => handoff === null ? openHandoff() : setHandoff(null)} className="text-[10px] text-slate-600 hover:text-slate-300" aria-label="Toggle handoff summary">
+          {handoff === null ? 'Handoff summary' : 'Hide handoff'}
+        </button>
+      </div>
+      {handoff !== null && (
+        <div className="px-4 py-2 border-b border-slate-800 bg-slate-900/60 flex-shrink-0" data-testid="handoff">
+          <textarea readOnly value={handoff} rows={8} aria-label="Handoff summary text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-[11px] font-mono text-slate-300" />
+          <button onClick={() => { void navigator.clipboard?.writeText(handoff).then(() => setCopied(true)); }} className="mt-1 px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-[11px] text-white">{copied ? 'Copied' : 'Copy'}</button>
+        </div>
+      )}
       <MessageList
         messages={currentMessages}
         streaming={isStreaming}

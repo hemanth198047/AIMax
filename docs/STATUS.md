@@ -16,25 +16,25 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 |---|-------|-------|----------------|
 | 1 | Environment discovery | 🟡 | `aimax doctor` checks tool versions. Provider versions in `providers.ts` are **hard-coded**, not discovered. No capability matrix. |
 | 2 | Foundation | 🟡 | Fastify + SQLite (WAL), **versioned migrations** (`PRAGMA user_version`), allow-listed updates, 31 server tests. Still missing: logging config, client tests, CI. |
-| 3 | Interactive UI | ✅ core · 🟡 rest | **Browser-verified** (Playwright + real Chrome): 3-pane layout, streaming chat, context selector, persisted selections, sandbox panel. Missing: resizable/collapsible panels, bottom console tabs (logs/problems/tests), artifact viewer, search, rename/pin/archive/branch UI. |
+| 3 | Interactive UI | ✅ core · 🟡 rest | **Browser-verified** (Playwright + real Chrome): 3-pane layout, streaming chat, context selector, persisted selections, sandbox panel. Chat **search, rename, pin, archive/restore, delete** are browser-verified. Missing: resizable/collapsible panels, bottom console tabs, artifact viewer, branching. |
 | 4 | Project intelligence | 🟡 | CRUD + switching. Missing: dashboard, templates, per-project memory settings. |
 | 5 | Person intelligence | 🟡 | CRUD. Missing: dashboard, aliases, merge, retention, task ownership UI. |
 | 6 | Project–person | ✅ link UI · 🟡 rest | Link/unlink a person to a project with a role (UI, tested). Combined `project_person` scope enforced end-to-end (tested). No relationship queries / graph yet. |
-| 7 | Attachments | 🟡 | Upload via button/drag-drop/paste, chips, size limit, stored; **plain-text/code/CSV/JSON extraction only** (100 KB cap), fenced as untrusted when sent to a provider; binary/PDF/DOCX/XLSX/images are stored but **not read** and the UI says so. No previews, no archive handling, no OCR/image understanding. |
+| 7 | Attachments | 🟡 | Upload via button/drag-drop/paste, chips, 50 MB limit. **Read locally**: plain text/code/CSV/JSON, **PDF** (text layer, ≤100 pages), **DOCX**, **XLSX** (≤200 rows/sheet), **PPTX**; output capped at 100 KB and fenced as untrusted data. Zip is **listed only** (never extracted; unsafe paths flagged); declared-size/entry-count zip-bomb guards. **Not read**: scanned PDFs and images (no OCR/vision — the UI says so), legacy .doc/.xls/.ppt, other binaries. Extractors are hand-written XML readers: formulas show cached values, merged cells/formatting are ignored. Attachments are context-gated (see Stage 7). No rendered previews yet (text preview endpoint only). |
 | 8 | Real sandbox | ✅ process-level · 🟡 container | Modes `readonly`/`temporary`/`container`/`direct` are enforced and tested (scrubbed env, timeout + process-tree kill, output cap, path-escape/symlink guard, approval for direct, confirm for destructive). **Temporary mode is NOT a security boundary** (runs as your OS user). **Container mode is implemented but NOT VERIFIED** — no Docker daemon was available to test; its test runs when `AIMAX_TEST_DOCKER_IMAGE` is set. Memory/CPU *reporting* and pause/resume/snapshot not built. |
 | 9 | Terminal / file explorer / git / checkpoints | ✅ API · 🟡 UI | Streaming terminal with Stop, file tree + viewer, git status/diff, checkpoints + restore (tested over HTTP). UI compiles and builds but **was not visually verified in a browser**. No app preview / port detection yet. |
 | 10 | Playwright | ❌ | |
 | 11 | Gateway / prompt enhancement | 🟡 browser-verified | Deterministic (no LLM): task classifier, prompt enhancement (off/minimal/balanced/maximum; your text is never rewritten, guidance is appended in a labeled block), keyword context retrieval with a char budget (current message + last 2 user turns). Activity strip + "Retrieved memory" panel in the UI. Heuristic classifier only; no token counting, no caching, no routing by task. |
 | 12 | MemoryVault | ✅ (this stage) | FTS5 + triggers, strict scope enforcement, tests. Missing: provenance workflow, staleness, auditor. |
 | 13 | Engineering knowledge | 🟡 | Decisions/solutions/failures CRUD; fingerprint uses `LIKE`. |
-| 14–16 | Caching, graphs, continuity | ❌ | |
+| 14–16 | Caching, graphs, continuity | 🟡 | **Continuity**: deterministic conversation handoff summary (stored messages only, no model; honest footer) with Copy in the UI. **Response caching deliberately not built** (stale/cross-scope answers are a correctness risk). No knowledge graph, no token counting. |
 | 17 | MCP server | 🟡 protocol tested · real client handshake only | Real MCP (JSON-RPC 2.0) over **stdio** (`packages/server/src/mcp/stdio.ts`) and `POST /mcp`: initialize, ping, tools/list, tools/call (tool errors as `isError`). The stdio server is **pinned** to one project/person via env; tool arguments cannot widen it, lists are restricted to that scope, and writes land at exactly that scope with provenance `inferred`. Tested by spawning the real process (5 tests). `claude mcp list` reported it **Connected** (handshake only — no model call, so tool use from a real Claude session is unverified). `GET /mcp/config?project_id=&person_id=` generates the config; it needs `npx tsx` and the repo checked out. Legacy `/mcp/call` is unpinned and unauthenticated (localhost only). |
 | 18 | Claude adapter | 🟡 **real CLI UNVERIFIED** | `claude -p --output-format stream-json` streaming, session resume (new turn only, falls back to full history), cancel (Stop kills the process and saves the partial answer), sessions bound to the exact project/person scope, all CLI tools disabled, empty cwd. Tested only against a **fake CLI** that emulates the assumed event format; flags came from `--help`, never run against a real Claude. The AI cannot touch the sandbox itself: it can only *propose* a command in an `aimax-run` block, which runs only after you click Run (verified in browser). Windows `.cmd` shim handling untested. |
-| 19–20 | Cursor / Codex | ❌ | Reported "unavailable". |
-| 21 | Subscription compliance | ❌ | Nothing tracks states/limits/zero-overage. |
-| 22 | Ollama | 🟡 | Chat + model list. Always picks `models[0]`. No embeddings. |
-| 23 | FreeLLMAPI | ❌ | Reported unavailable, hard-coded. |
-| 24 | Hybrid routing | ❌ | `auto` = Claude else Ollama. No tiers / quality gate. |
+| 19–20 | Cursor / Codex | ❌ | No adapter. Status reports PATH detection only and `available:false`. |
+| 21 | Subscription compliance | 🟡 local only | Local ledger of requests/characters AImax sent per provider (no message content), **user-set** per-hour/per-day limits enforced *before* a provider is called (tested), auto-routing falls back, provider-reported rate/usage limits pause that provider for 60 min (resume button). **Cannot see your real plan quota, usage outside AImax, or reset times** — limits are only what you configure. No plan-state tracking. |
+| 22 | Ollama | 🟡 | Chat + model list + **model selection** (falls back to the first installed model; tested against a fake Ollama server, **not a real one**). No embeddings. |
+| 23 | FreeLLMAPI | ❌ | No adapter; reported unavailable. |
+| 24 | Hybrid routing | 🟡 | `auto` = Claude if available and within budget, else Ollama (selected model); routing notes appear in the activity strip. No task-tier routing / quality gate. |
 | 25 | DesignIQ | 🟡 | Design-token CRUD. `audit` only runs `pixelslop status` — **not a real audit**. Path hard-coded to `D:\ProjectsPortfolio\pixelslop`. |
 | 27 | Link Vault | 🟡 | Read-only SQLite reader, keyword classifier. Path hard-coded; no incremental sync. |
 | 28–36 | SkillScout … hardening | ❌ | |
@@ -47,6 +47,16 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 5. **PARTLY FIXED** — decisions/solutions/failures/discoveries, fingerprint and MCP tools are now project-scoped (no project ⇒ global rows only; tested). **Still open:** person scope on decisions, conversations/messages/attachments/tasks listings are unfiltered (they are only used for the owner's own UI, but must be scoped before any provider handoff/export).
 6. **OPEN** — Hard-coded `D:\…` paths (pixelslop, LinkVault) and fake provider versions; should come from config/discovery.
 7. **OPEN** — Windows-only paths (`AppData\Roaming`); now overridable with `AIMAX_DATA_DIR`.
+
+## Stages 6–10 (one run)
+- **6 Attachments**: PDF/DOCX/XLSX/PPTX extraction, zip listing, zip-bomb guards (Phase 7 row). 9 fixture-based tests incl. bombs and wrong-extension files.
+- **7 Context checks**: conversation messages, attachments, continue/rename/delete and handoff now require the conversation to be visible in the caller's project/person context (404 otherwise); an attachment bound to one conversation can't be pulled into another. Tests drive the real routes.
+- **8 Chat management** + a real bug: `apiFetch` sent a JSON content-type on body-less DELETE, which Fastify rejects, so deleting a conversation, unlinking a person and deleting a sandbox from the UI silently failed. Fixed and covered by e2e.
+- **9 Providers**: removed hard-coded provider versions (real `claude --version`), usage ledger + limits (Phase 21 row), Ollama model choice, UI panel.
+- **10 Continuity**: handoff summary. Response cache intentionally skipped (see Phase 14–16).
+- Tests: 75 server pass (1 Docker skip), 5 Playwright e2e pass, both type-checks and the client build clean.
+- Still **unverified**: real Claude CLI runs, real Ollama, Windows, container mode, real MCP tool use from a Claude session.
+- Known gaps: no OCR/vision; Cursor/Codex/FreeLLMAPI adapters; knowledge graph; task-tier routing; discoveries/solutions person scope; legacy `/mcp/call` unauthenticated.
 
 ## Stage 5 — real MCP server + remaining scope gaps
 - MCP: see Phase 17 row. Old fake `/mcp/config` (an invalid stdin proxy) replaced.

@@ -53,3 +53,25 @@ test('conversation list: search (title + message text), pin order, archive, LIKE
   assert.deepEqual(await ids('q=' + encodeURIComponent('_')), [], '_ is literal');
   await app.close();
 });
+
+test('handoff summary: deterministic, quotes stored messages, honest footer, hidden outside its context', async () => {
+  const db = getDb(); db.pragma('foreign_keys = OFF');
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO projects(id,name,created_at,updated_at) VALUES('HP','Handoff Proj',?,?)").run(now, now);
+  db.prepare("INSERT INTO conversations(id,title,scope,project_id,created_at,updated_at) VALUES('hc','Plan the migration','project','HP',?,?)").run(now, now);
+  const m = (id: string, role: string, content: string, extra = '[]', prov = '') =>
+    db.prepare('INSERT INTO messages(id,conversation_id,role,content,attachments,provider,created_at) VALUES(?,?,?,?,?,?,?)').run(id, 'hc', role, content, extra, prov, new Date(Date.now() + Number(id.slice(1))).toISOString());
+  m('h1', 'user', 'How do we migrate the billing tables?', JSON.stringify([{ filename: 'schema.sql', size: 1234 }]));
+  m('h2', 'assistant', 'Use an expand/contract migration.\n\nStep one: add columns.', '[]', 'claude');
+  m('h3', 'user', 'And rollback?');
+  db.prepare("INSERT INTO tasks(id,title,conversation_id,status) VALUES('ht','Write rollback script','hc','pending')").run();
+  const app = Fastify(); await app.register(conversationsRoutes); await app.ready();
+  const r = await app.inject({ url: '/api/conversations/hc/handoff?project_id=HP' });
+  assert.equal(r.statusCode, 200);
+  const md = r.json().markdown as string;
+  for (const part of ['# Handoff: Plan the migration', 'project "Handoff Proj"', 'answered by claude', 'How do we migrate the billing tables?', 'And rollback?',
+    'expand/contract migration. Step one: add columns.', 'schema.sql (1234 bytes)', '[pending] Write rollback script', 'without a model']) assert.ok(md.includes(part), part);
+  assert.equal((await app.inject({ url: '/api/conversations/hc/handoff' })).statusCode, 404, 'not visible from global context');
+  assert.equal((await app.inject({ url: '/api/conversations/hc/handoff?project_id=OTHER' })).statusCode, 404);
+  await app.close();
+});
