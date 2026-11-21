@@ -145,5 +145,75 @@ function applySchema(db: Database.Database) {
       extracted_text TEXT DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Phase 13: Engineering Knowledge
+    CREATE TABLE IF NOT EXISTS discoveries (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      type TEXT NOT NULL DEFAULT 'feature',
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      location TEXT DEFAULT '',
+      metadata TEXT DEFAULT '{}',
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS decisions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      rationale TEXT DEFAULT '',
+      alternatives TEXT DEFAULT '[]',
+      tradeoffs TEXT DEFAULT '',
+      status TEXT DEFAULT 'active',
+      supersedes TEXT REFERENCES decisions(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS solutions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      problem TEXT NOT NULL,
+      root_cause TEXT DEFAULT '',
+      fix TEXT NOT NULL,
+      files_changed TEXT DEFAULT '[]',
+      test_evidence TEXT DEFAULT '',
+      environment TEXT DEFAULT '{}',
+      tags TEXT DEFAULT '[]',
+      verified_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS failures (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      approach TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      context TEXT DEFAULT '',
+      tags TEXT DEFAULT '[]',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Phase 25: DesignIQ
+    CREATE TABLE IF NOT EXISTS design_entries (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      type TEXT NOT NULL DEFAULT 'token',
+      name TEXT NOT NULL,
+      value TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      approved INTEGER DEFAULT 1,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS design_audits (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      url TEXT NOT NULL,
+      score REAL DEFAULT 0,
+      findings TEXT DEFAULT '[]',
+      screenshot_path TEXT DEFAULT '',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }

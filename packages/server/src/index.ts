@@ -13,6 +13,10 @@ import { tasksRoutes } from './routes/tasks.js';
 import { sandboxRoutes } from './routes/sandbox.js';
 import { chatRoutes } from './routes/chat.js';
 import { providersRoutes } from './routes/providers.js';
+import { knowledgeRoutes } from './routes/knowledge.js';
+import { linkVaultRoutes } from './routes/linkvault.js';
+import { designiqRoutes } from './routes/designiq.js';
+import { mcpRoutes } from './mcp/server.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001');
 const UPLOADS_DIR = join(homedir(), 'AppData', 'Roaming', 'aimax', 'uploads');
@@ -39,6 +43,10 @@ await app.register(tasksRoutes);
 await app.register(sandboxRoutes);
 await app.register(chatRoutes);
 await app.register(providersRoutes);
+await app.register(knowledgeRoutes);
+await app.register(linkVaultRoutes);
+await app.register(designiqRoutes);
+await app.register(mcpRoutes);
 
 // File upload endpoint
 app.post('/api/attachments/upload', async (req, reply) => {

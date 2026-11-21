@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X } from 'lucide-react';
+import { Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X, Link, Lightbulb } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { apiFetch } from '../api/client';
 import type { Conversation, Project, Person } from '../api/client';
@@ -7,7 +7,12 @@ import clsx from 'clsx';
 import ProjectCreate from './ProjectCreate';
 import PersonCreate from './PersonCreate';
 
-export default function Sidebar() {
+interface SidebarProps {
+  onShowKnowledge: () => void;
+  onShowLinkVault: () => void;
+}
+
+export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarProps) {
   const {
     sidebarSection, setSidebarSection, conversations, projects, people,
     activeConversationId, setActiveConversation, setConversations,
@@ -199,8 +204,16 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Footer */}
-      <div className="p-2 border-t border-slate-800">
+      {/* Footer tools */}
+      <div className="p-2 border-t border-slate-800 space-y-0.5">
+        <button onClick={onShowKnowledge}
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-indigo-400 rounded-lg transition-colors">
+          <Lightbulb size={11} /> Engineering Knowledge
+        </button>
+        <button onClick={onShowLinkVault}
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-indigo-400 rounded-lg transition-colors">
+          <Link size={11} /> Link Vault
+        </button>
         <button className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-slate-400 rounded-lg transition-colors">
           <Settings size={11} /> Settings
         </button>
