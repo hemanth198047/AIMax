@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(cd D:\\\\ProjectsPortfolio\\\\AImax; npx --workspace=packages/server tsup src/index.ts --format esm --out-dir dist --no-splitting 2>&1; Write-Host \"EXIT: $LASTEXITCODE\")",
+      "PowerShell(cd D:\\\\ProjectsPortfolio\\\\AImax\\\\packages\\\\client; npx tsc --noEmit 2>&1; Write-Host \"EXIT: $LASTEXITCODE\")"
+    ]
+  }
+}

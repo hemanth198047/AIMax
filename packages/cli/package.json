@@ -1,0 +1,9 @@
+{
+  "name": "@aimax/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "aimax": "./src/index.js" },
+  "scripts": {
+    "build": "echo CLI ready"
+  }
+}
