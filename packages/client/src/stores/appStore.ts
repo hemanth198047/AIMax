@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Project, Person, Conversation } from '../api/client';
 
 type SidebarSection = 'conversations' | 'projects' | 'people' | 'memory' | 'tasks';
@@ -24,6 +25,8 @@ interface AppState {
   setProjects: (p: Project[]) => void;
   setPeople: (p: Person[]) => void;
   setConversations: (c: Conversation[]) => void;
+  /** Drop persisted selections that no longer exist on the server (deleted project/person/conversation). */
+  reconcile: () => void;
 }
 
 function computeScope(projectId: string | null, personId: string | null): Scope {
@@ -33,7 +36,7 @@ function computeScope(projectId: string | null, personId: string | null): Scope 
   return 'global';
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>()(persist((set) => ({
   activeProjectId: null,
   activePersonId: null,
   activeConversationId: null,
@@ -53,4 +56,20 @@ export const useAppStore = create<AppState>((set) => ({
   setProjects: (projects) => set({ projects }),
   setPeople: (people) => set({ people }),
   setConversations: (conversations) => set({ conversations }),
+  reconcile: () => set((s) => {
+    const projectOk = !s.activeProjectId || s.projects.some(p => p.id === s.activeProjectId);
+    const personOk = !s.activePersonId || s.people.some(p => p.id === s.activePersonId);
+    const convOk = !s.activeConversationId || s.conversations.some(c => c.id === s.activeConversationId);
+    const activeProjectId = projectOk ? s.activeProjectId : null;
+    const activePersonId = personOk ? s.activePersonId : null;
+    return { activeProjectId, activePersonId, activeConversationId: convOk ? s.activeConversationId : null,
+      scope: computeScope(activeProjectId, activePersonId) };
+  }),
+}), {
+  name: 'aimax-ui-state',
+  // Only the user's selections survive a reload/restart; data lists are re-fetched from the server.
+  partialize: (s) => ({
+    activeProjectId: s.activeProjectId, activePersonId: s.activePersonId, activeConversationId: s.activeConversationId,
+    scope: s.scope, provider: s.provider, sidebarSection: s.sidebarSection,
+  }),
 }));

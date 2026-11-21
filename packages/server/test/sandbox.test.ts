@@ -110,6 +110,8 @@ test('temporary mode on a git repo uses a worktree; changes never touch the sour
   assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8').trim(), 'hello', 'source repo untouched');
   const g = await api('GET', `/api/sandbox/${id}/git`);
   assert.match(g.body.diff, /\+changed/);
+  assert.match(g.body.diff, /\+\+\+ b\/n\.txt[\s\S]*\+new/, 'untracked files appear in the diff');
+  assert.equal(sh(repo, 'git status --porcelain').stdout.trim(), '', 'source repo index untouched');
   assert.deepEqual(g.body.status.files.map((f: { path: string }) => f.path).sort(), ['a.txt', 'n.txt']);
 
   // checkpoint → mutate → restore

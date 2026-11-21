@@ -49,7 +49,7 @@ export default function MessageList({ messages, streaming, streamingText }: Prop
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
   return (
-    <div className={clsx('flex gap-3', isUser && 'flex-row-reverse')}>
+    <div className={clsx('flex gap-3', isUser && 'flex-row-reverse')} data-testid={`msg-${message.role}`}>
       <div className={clsx(
         'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-white',
         isUser ? 'bg-slate-600' : 'bg-indigo-600'
@@ -62,6 +62,7 @@ function MessageBubble({ message }: { message: Message }) {
           ? 'bg-indigo-600 text-white rounded-tr-none'
           : 'bg-slate-800/60 text-slate-200 rounded-tl-none border border-slate-700/50'
       )}>
+        {isUser && <AttachmentChips raw={message.attachments} />}
         {isUser
           ? <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
           : <MarkdownContent content={message.content} />
@@ -70,6 +71,17 @@ function MessageBubble({ message }: { message: Message }) {
           <div className="text-[10px] opacity-40 mt-1.5">{message.provider}{message.model ? ` · ${message.model}` : ''}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function AttachmentChips({ raw }: { raw: string }) {
+  let items: { id: string; filename: string; extracted?: boolean }[] = [];
+  try { items = JSON.parse(raw || '[]'); } catch { /* ignore */ }
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mb-2" data-testid="message-attachments">
+      {items.map(a => <span key={a.id} className="px-2 py-0.5 bg-indigo-800/60 rounded-full text-[11px]">📎 {a.filename}{a.extracted === false ? ' (not read)' : ''}</span>)}
     </div>
   );
 }

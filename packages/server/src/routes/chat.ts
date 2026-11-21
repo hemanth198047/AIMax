@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
 import { autoChat } from '../providers/auto.js';
 import { searchMemory } from '../memory/search.js';
+import { attachmentBlock } from '../attachments/extract.js';
 
 interface ChatBody {
   conversationId?: string;
@@ -11,12 +12,13 @@ interface ChatBody {
   personId?: string;
   provider?: string;
   scope?: string;
+  attachmentIds?: string[];
 }
 
 export async function chatRoutes(app: FastifyInstance) {
   app.post<{ Body: ChatBody }>('/api/chat', async (req: FastifyRequest<{ Body: ChatBody }>, reply: FastifyReply) => {
     const db = getDb();
-    const { message, projectId, personId, provider = 'auto', scope = 'global' } = req.body;
+    const { message, projectId, personId, provider = 'auto', scope = 'global', attachmentIds = [] } = req.body;
     let { conversationId } = req.body;
     const now = new Date().toISOString();
 
@@ -30,9 +32,21 @@ export async function chatRoutes(app: FastifyInstance) {
       db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now, conversationId);
     }
 
+    // Resolve attachments (only ones not yet bound to a different conversation)
+    const atts = attachmentIds.length
+      ? db.prepare(`SELECT id,filename,mimetype,size,extracted_text FROM attachments WHERE id IN (${attachmentIds.map(() => '?').join(',')})
+                    AND (conversation_id IS NULL OR conversation_id=?)`).all(...attachmentIds, conversationId) as
+          { id: string; filename: string; mimetype: string; size: number; extracted_text: string }[]
+      : [];
+    atts.sort((a, b) => attachmentIds.indexOf(a.id) - attachmentIds.indexOf(b.id));   // keep the order the user attached them
+    if (atts.length) {
+      db.prepare(`UPDATE attachments SET conversation_id=? WHERE id IN (${atts.map(() => '?').join(',')})`).run(conversationId, ...atts.map(a => a.id));
+    }
+    const attMeta = JSON.stringify(atts.map(a => ({ id: a.id, filename: a.filename, size: a.size, mimetype: a.mimetype, extracted: a.extracted_text.length > 0 })));
+
     // Save user message
-    db.prepare('INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)').run(
-      uuidv4(), conversationId, 'user', message, now
+    db.prepare('INSERT INTO messages(id,conversation_id,role,content,attachments,created_at) VALUES(?,?,?,?,?,?)').run(
+      uuidv4(), conversationId, 'user', message, attMeta, now
     );
 
     // Build conversation history (last 20 messages)
@@ -40,6 +54,11 @@ export async function chatRoutes(app: FastifyInstance) {
       'SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 20'
     ).all(conversationId) as { role: string; content: string }[];
     const messages = history.reverse() as Array<{ role: 'user' | 'assistant'; content: string }>;
+
+    // Give the provider the attachment contents for THIS turn (stored message stays clean)
+    if (atts.length && messages.length) {
+      messages[messages.length - 1].content += atts.map(a => attachmentBlock(a, a.extracted_text.length > 0)).join('');
+    }
 
     // Load relevant memory context
     const memoryContext = getMemoryContext(message, scope, projectId, personId);

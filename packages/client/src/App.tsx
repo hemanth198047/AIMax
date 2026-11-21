@@ -14,14 +14,16 @@ import type { Project, Person, Conversation } from './api/client';
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
 
 function MainLayout() {
-  const { setProjects, setPeople, setConversations } = useAppStore();
+  const { setProjects, setPeople, setConversations, reconcile } = useAppStore();
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showLinkVault, setShowLinkVault] = useState(false);
 
   useEffect(() => {
-    apiFetch<Project[]>('/api/projects').then(setProjects).catch(console.error);
-    apiFetch<Person[]>('/api/people').then(setPeople).catch(console.error);
-    apiFetch<Conversation[]>('/api/conversations').then(setConversations).catch(console.error);
+    Promise.all([
+      apiFetch<Project[]>('/api/projects').then(setProjects),
+      apiFetch<Person[]>('/api/people').then(setPeople),
+      apiFetch<Conversation[]>('/api/conversations').then(setConversations),
+    ]).then(reconcile).catch(console.error);
   }, []);
 
   return (

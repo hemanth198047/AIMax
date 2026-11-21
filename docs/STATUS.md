@@ -1,6 +1,6 @@
 # AImax — Build Status vs. Master Prompt
 
-_Last updated: 2026-11-21 (stage 2: hardening + real sandbox). Method: read all source, type-checked, started the server and exercised the API.
+_Last updated: 2026-11-21 (stage 3: browser-verified first milestone). Method: read all source, type-checked, started the server and exercised the API.
 Nothing below is marked ✅ unless it was run._
 
 ## Verdict
@@ -16,11 +16,11 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 |---|-------|-------|----------------|
 | 1 | Environment discovery | 🟡 | `aimax doctor` checks tool versions. Provider versions in `providers.ts` are **hard-coded**, not discovered. No capability matrix. |
 | 2 | Foundation | 🟡 | Fastify + SQLite (WAL), **versioned migrations** (`PRAGMA user_version`), allow-listed updates, 31 server tests. Still missing: logging config, client tests, CI. |
-| 3 | Interactive UI | 🟡 | 3-pane layout, chat streaming, sidebar. Not browser-verified. No resizable panels, bottom console, artifact viewer. |
+| 3 | Interactive UI | ✅ core · 🟡 rest | **Browser-verified** (Playwright + real Chrome): 3-pane layout, streaming chat, context selector, persisted selections, sandbox panel. Missing: resizable/collapsible panels, bottom console tabs (logs/problems/tests), artifact viewer, search, rename/pin/archive/branch UI. |
 | 4 | Project intelligence | 🟡 | CRUD + switching. Missing: dashboard, templates, per-project memory settings. |
 | 5 | Person intelligence | 🟡 | CRUD. Missing: dashboard, aliases, merge, retention, task ownership UI. |
-| 6 | Project–person | 🟡 | `project_people` join + combined scope in UI. No relationship queries / graph. |
-| 7 | Attachments | 🟡 | Upload saves to disk. **No extraction, preview, archive safety checks.** |
+| 6 | Project–person | ✅ link UI · 🟡 rest | Link/unlink a person to a project with a role (UI, tested). Combined `project_person` scope enforced end-to-end (tested). No relationship queries / graph yet. |
+| 7 | Attachments | 🟡 | Upload via button/drag-drop/paste, chips, size limit, stored; **plain-text/code/CSV/JSON extraction only** (100 KB cap), fenced as untrusted when sent to a provider; binary/PDF/DOCX/XLSX/images are stored but **not read** and the UI says so. No previews, no archive handling, no OCR/image understanding. |
 | 8 | Real sandbox | ✅ process-level · 🟡 container | Modes `readonly`/`temporary`/`container`/`direct` are enforced and tested (scrubbed env, timeout + process-tree kill, output cap, path-escape/symlink guard, approval for direct, confirm for destructive). **Temporary mode is NOT a security boundary** (runs as your OS user). **Container mode is implemented but NOT VERIFIED** — no Docker daemon was available to test; its test runs when `AIMAX_TEST_DOCKER_IMAGE` is set. Memory/CPU *reporting* and pause/resume/snapshot not built. |
 | 9 | Terminal / file explorer / git / checkpoints | ✅ API · 🟡 UI | Streaming terminal with Stop, file tree + viewer, git status/diff, checkpoints + restore (tested over HTTP). UI compiles and builds but **was not visually verified in a browser**. No app preview / port detection yet. |
 | 10 | Playwright | ❌ | |
@@ -48,6 +48,29 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 6. **OPEN** — Hard-coded `D:\…` paths (pixelslop, LinkVault) and fake provider versions; should come from config/discovery.
 7. **OPEN** — Windows-only paths (`AppData\Roaming`); now overridable with `AIMAX_DATA_DIR`.
 
+## Stage 3 — first working milestone (§151), browser-verified
+`npm run test:e2e` drives the real UI in real Chrome against the real server and SQLite DB. Only the AI provider is replaced by a
+deterministic **test-only** provider (`AIMAX_TEST_PROVIDER=1`; never selected by `auto`). Verified steps:
+open app → create project (with repo) → create person → select both → combined scope → link person to project (role) → save
+project+person memory → new conversation → attach 2 files (1 readable, 1 binary flagged "not read") → ask → scoped memory + attachments
+reached the provider → create sandbox (git worktree of the project repo) → run command → terminal output + exit code → changed
+files + diff (incl. new files) → checkpoint → file viewer → real project untouched → **restart server and browser** → same context,
+conversation and sandbox restored → conversation continues with history. A second test proves privacy in the UI (project+person → project →
+global → person-only) and that a note saved in person-only context stays `person`-scoped. Mutation-checked: re-introducing the old
+scope bug makes it fail. Screenshots are written to `e2e/screenshots/` (gitignored).
+
+**Bugs found by the walkthrough and fixed:** person-only memories were saved as `global` (privacy leak); no UI to link person↔project;
+attach button was a dead input; selections were lost on reload; attachments reached the model in arbitrary order; diff omitted new files;
+icon-only buttons had no accessible names.
+
+**Honest limits of this milestone**
+- Steps 8–14 of §151 ("route through a provider → provider executes a safe task in the sandbox") are verified only as *user-driven*
+  sandbox runs. **The AI cannot call the sandbox yet** (no tool-use loop); that needs the gateway + a real Claude adapter.
+- The real providers (Claude CLI, Ollama) were **not** exercised end-to-end; the test provider stands in.
+- Retrieval is keyword-only on the *current message* (FTS5 OR-terms): a follow-up with no shared keywords gets no memory. Needs the
+  gateway's context builder (recent-turn terms, embeddings benchmark).
+- Test machine was Linux; Windows-specific paths (PowerShell runner, `taskkill`, `NUL`) are written but **not exercised** here.
+
 ## Stage 2 — what changed
 - `db/update.ts` allow-listed updates; `memory/projectScope.ts`; migrations v1 (sandbox columns + `sandbox_runs`)
 - `sandbox/guard.ts` (path guard, env scrub, destructive-command detector), `runner.ts` (spawn, timeout, tree kill, cancel, cap, optional docker), `workspace.ts` (worktree/copy, git status/diff, checkpoints, restore, cleanup)
@@ -64,8 +87,10 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 - `npm test` (9 passing), `npm run typecheck`
 
 ## Recommended next stage
-1. **Verify container mode** on your Windows machine (Docker Desktop): `set AIMAX_TEST_DOCKER_IMAGE=node:22-slim && npm test`. Until that passes, treat container isolation as unproven.
-2. **Browser-verify the UI** (first-milestone §151 steps 1–18) with Playwright: create project → person → link → conversation → attach → sandbox run → restart → resume.
-3. **Phase 7 attachments**: text extraction (PDF/DOCX/CSV/…), previews, zip-slip/decompression-bomb guards, scoped storage.
-4. **Phase 11/18**: a real gateway (task classification, deterministic prompt enhancement, context budget) and a Claude adapter with sessions/streaming/cancel instead of re-sending history through `claude -p`.
-5. Make `/mcp` a real MCP server (JSON-RPC over stdio/streamable HTTP) so Claude Code can attach it.
+1. **Run on your Windows machine**: `npm install`, `npx playwright install chromium`, then `npm test` and `npm run test:e2e`
+   (and with Docker Desktop: `set AIMAX_TEST_DOCKER_IMAGE=node:22-slim`). Windows paths and container isolation are still unproven.
+2. **Phase 11 + 18 — gateway and a real Claude adapter**: task classification, deterministic prompt enhancement, context budget
+   (recent-turn keywords), and `claude` with sessions/streaming/cancel **plus a tool loop that can use the sandbox via approval prompts**.
+3. **Phase 7 (rest)**: PDF/DOCX/XLSX extraction, previews, zip-slip/decompression guards, image handling.
+4. Real MCP server (JSON-RPC) so Claude Code can attach to the memory/project tools.
+5. Remaining scope gaps: conversations/messages/tasks listings and person scope on decisions.

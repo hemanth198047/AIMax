@@ -32,3 +32,7 @@ hs_err_pid*
 replay_pid*
 
 .claude/worktrees/
+
+# e2e artefacts
+e2e/test-results/
+e2e/screenshots/

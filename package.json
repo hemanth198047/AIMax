@@ -9,9 +9,11 @@
     "dev": "concurrently \"npm run dev --workspace=packages/server\" \"npm run dev --workspace=packages/client\"",
     "build": "npm run build --workspace=packages/server && npm run build --workspace=packages/client",
     "start": "npm run start --workspace=packages/server",
-    "test": "npm test --workspace=packages/server"
+    "test": "npm test --workspace=packages/server",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "concurrently": "^9.1.2"
   },
   "allowScripts": {

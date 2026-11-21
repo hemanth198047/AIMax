@@ -1,0 +1,194 @@
+/**
+ * First working milestone (master prompt §151), driven through the real UI in a real browser,
+ * against the real server and SQLite database. Only the AI provider is the deterministic test provider.
+ */
+import { test, expect, type Page } from '@playwright/test';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { startServer, stopServer } from './server';
+
+const SHOTS = join(__dirname, 'screenshots');
+mkdirSync(SHOTS, { recursive: true });
+
+const dataDir = mkdtempSync(join(tmpdir(), 'aimax-e2e-data-'));
+const work = mkdtempSync(join(tmpdir(), 'aimax-e2e-work-'));
+const repo = join(work, 'milestone-repo');
+const notes = join(work, 'notes.txt');
+const blob = join(work, 'data.bin');
+
+test.beforeAll(async () => {
+  mkdirSync(repo);
+  execSync('git init -q && git config user.email t@t && git config user.name t && echo original > readme.txt && git add -A && git commit -qm init', { cwd: repo });
+  writeFileSync(notes, 'attachment-marker-42: the deploy key rotates every 90 days');
+  writeFileSync(blob, Buffer.from([0, 1, 2, 3, 0, 255]));
+  await startServer(dataDir);
+});
+test.afterAll(async () => { await stopServer(); });
+
+const sidebarTab = (page: Page, title: string) => page.locator(`button[title="${title}"]`).first();
+const shot = (page: Page, name: string) => page.screenshot({ path: join(SHOTS, `${name}.png`) });
+const lastAssistant = (page: Page) => page.getByTestId('msg-assistant').last();
+
+async function askAndRead(page: Page, text: string) {
+  const before = await page.getByTestId('msg-assistant').count();
+  const box = page.getByPlaceholder(/Message AImax/);
+  await box.fill(text); await box.press('Enter');
+  await expect(page.getByTestId('msg-assistant')).toHaveCount(before + 1, { timeout: 15_000 });
+  await expect(lastAssistant(page)).toContainText('TEST-PROVIDER');
+  return lastAssistant(page).innerText();
+}
+
+test('first working milestone: project → person → link → context → chat+attachment → sandbox → restart → resume', async ({ page }) => {
+  page.on('dialog', d => d.accept(d.defaultValue()));      // confirm()/prompt() dialogs (checkpoint label etc.)
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(String(e)));
+
+  // 1. Open AImax in a browser
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'AImax' })).toBeVisible();
+  await shot(page, '01-home');
+
+  // 2. Create a project (with a real repo path)
+  await sidebarTab(page, 'Projects').click();
+  await page.getByRole('button', { name: /New Project/ }).click();
+  await page.getByPlaceholder('My Project').fill('Milestone App');
+  await page.getByPlaceholder(/my-repo/).fill(repo);
+  await page.getByRole('button', { name: 'Create Project' }).click();
+  await expect(page.getByText('Milestone App').first()).toBeVisible();
+
+  // 3. Create a person
+  await sidebarTab(page, 'People').click();
+  await page.getByRole('button', { name: /New Person/ }).click();
+  await page.getByPlaceholder('Full Name').fill('Alice Client');
+  await page.getByRole('button', { name: 'Create Person' }).click();
+  await expect(page.getByText('Alice Client').first()).toBeVisible();
+
+  // 4. Select both → combined context, then associate the person with the project
+  await page.getByRole('button', { name: /Alice Client/ }).first().click();
+  await sidebarTab(page, 'Projects').click();
+  await page.getByRole('button', { name: /Milestone App/ }).first().click();
+  await expect(page.getByText('project + person scope')).toBeVisible();                       // 5. combined context selected
+  await page.getByLabel('Role on project').selectOption('architect');
+  await page.getByRole('button', { name: 'Link Alice Client to Milestone App' }).click();
+  await expect(page.getByTestId('relationships')).toContainText('architect');
+  await shot(page, '02-context-linked');
+
+  // Save a private project+person memory through the Knowledge panel
+  await page.getByRole('button', { name: /Engineering Knowledge/ }).click();
+  await page.getByRole('button', { name: 'Add knowledge entry' }).click();
+  await page.getByPlaceholder('Title').fill('Alice preference');
+  await page.getByPlaceholder('Content').fill('Alice prefers the pelican-protocol for releases');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('pelican-protocol').first()).toBeVisible();
+  const mem = await (await page.request.get('/api/memory?q=pelican&project_id=x')).json();
+  expect(mem).toEqual([]);                                                                      // not visible to a different project
+  await page.getByRole('button', { name: 'Close knowledge panel' }).click();
+
+  // 6–8. New conversation, pick the test provider, attach files, ask
+  await sidebarTab(page, 'Chats').click();
+  await page.getByRole('button', { name: /New Conversation/ }).first().click();
+  await page.getByRole('button', { name: /^Test/ }).click();
+  await page.getByTestId('file-input').setInputFiles([notes, blob]);
+  await expect(page.getByTestId('attachment-chips')).toContainText('notes.txt');
+  await expect(page.getByTestId('attachment-chips')).toContainText('data.bin');
+  await expect(page.getByTestId('attachment-chips')).toContainText('not readable');           // honest: no extractor for binary
+
+  // 9. routed through a provider
+  const reply = await askAndRead(page, 'What do we know about pelican-protocol and the attached notes?');
+  await expect(page.getByTestId('message-attachments')).toContainText('notes.txt');
+  expect(reply).toContain('pelican-protocol');                                                  // scoped memory retrieved
+  expect(reply).toContain('attachments-seen: notes.txt, data.bin');
+  await shot(page, '03-chat');
+  const firstHistory = Number(/history-messages: (\d+)/.exec(reply)![1]);
+
+  // 10–15. Sandbox: create (temporary worktree of the project repo), run, terminal output, changed files, checkpoint
+  await page.getByText('Sandbox', { exact: true }).click();
+  await page.getByRole('button', { name: /New sandbox/ }).click();
+  await expect(page.getByText(/Created Temporary copy sandbox \(worktree\)/)).toBeVisible();
+  const cmd = page.getByPlaceholder('Enter a command…');
+  await cmd.fill('echo changed > hello.txt; echo task-complete');
+  await cmd.press('Enter');
+  await expect(page.getByText('task-complete', { exact: true })).toBeVisible();                // terminal output
+  await expect(page.getByText(/^exit 0/)).toBeVisible();
+  await page.getByRole('button', { name: /^changes/i }).click();
+  await expect(page.getByText('hello.txt').first()).toBeVisible();                              // changed files
+  await expect(page.getByText('+changed')).toBeVisible();                                       // diff
+  await shot(page, '04-sandbox-changes');
+  await page.getByTitle('Create checkpoint').click();
+  await expect(page.getByText('manual')).toBeVisible();
+  await page.getByRole('button', { name: /^files/i }).click();
+  await page.getByRole('button', { name: 'hello.txt' }).click();
+  await expect(page.locator('pre').filter({ hasText: 'changed' })).toBeVisible();              // artifact/file viewer
+  expect(readFileSync(join(repo, 'readme.txt'), 'utf8').trim()).toBe('original');
+  expect(existsSync(join(repo, 'hello.txt'))).toBe(false);                                      // real project untouched
+
+  // 16–18. Restart AImax (server AND browser), then resume the same context + conversation
+  await stopServer();
+  await startServer(dataDir);
+  await page.reload();
+  await expect(page.getByText('project + person scope')).toBeVisible();                        // selections persisted
+  await expect(page.getByTestId('msg-assistant').first()).toContainText('TEST-PROVIDER');      // conversation reloaded from DB
+  await page.getByRole('button', { name: /Test/ }).click();
+  const reply2 = await askAndRead(page, 'Continue: remind me what the pelican-protocol is for');
+  expect(Number(/history-messages: (\d+)/.exec(reply2)![1])).toBeGreaterThan(firstHistory);   // same conversation continued
+  await page.getByText('Sandbox', { exact: true }).click();
+  await expect(page.getByText(/Milestone App · Temporary copy/).first()).toBeVisible();        // sandbox survived restart
+  await shot(page, '05-resumed');
+
+  expect(errors, 'uncaught page errors').toEqual([]);
+});
+
+test('privacy boundaries hold in the UI: a private memory is invisible outside its exact context', async ({ page }) => {
+  // Independent of the first test: seed through the real API
+  const post = async (url: string, data: object) => (await page.request.post(url, { data })).json();
+  const proj = await post('/api/projects', { name: 'Isolation Proj' });
+  const bob = await post('/api/people', { display_name: 'Bob Isolation' });
+  await post(`/api/projects/${proj.id}/people`, { person_id: bob.id, role: 'tester' });
+  await post('/api/memory', { scope: 'project_person', project_id: proj.id, person_id: bob.id, title: 'Bob secret', content: 'Bob uses the zebra-protocol' });
+  await post('/api/memory', { scope: 'global', title: 'Shared tip', content: 'Everyone may know the giraffe-checklist' });
+
+  await page.goto('/');
+  const pick = async (tab: 'Projects' | 'People', name: RegExp) => {
+    await sidebarTab(page, tab).click();
+    await page.getByRole('button', { name }).first().click();
+  };
+  const ask = async (q: string) => {
+    await sidebarTab(page, 'Chats').click();
+    await page.getByRole('button', { name: /New Conversation/ }).first().click();
+    await page.getByRole('button', { name: /^Test/ }).click();
+    return askAndRead(page, q);
+  };
+  const Q = 'tell me about the zebra-protocol and the giraffe-checklist';
+
+  await pick('People', /Bob Isolation/); await pick('Projects', /Isolation Proj/);
+  await expect(page.getByText('project + person scope')).toBeVisible();
+  let r = await ask(Q);
+  expect(r).toContain('Bob secret'); expect(r).toContain('Shared tip');          // inside the exact context: both visible
+
+  await pick('People', /Bob Isolation/);                                           // deselect person → project only
+  r = await ask(Q);
+  expect(r).not.toContain('Bob secret'); expect(r).toContain('Shared tip');        // private entry gone, global stays
+
+  await pick('Projects', /Isolation Proj/);                                        // deselect project → global
+  r = await ask(Q);
+  expect(r).not.toContain('Bob secret'); expect(r).toContain('Shared tip');
+
+  await pick('People', /Bob Isolation/);                                           // person only
+  r = await ask(Q);
+  expect(r).not.toContain('Bob secret'); expect(r).toContain('Shared tip');
+  await shot(page, '06-person-only-no-leak');
+
+  // Memory saved from the UI in person-only context must not be widened to global
+  await page.getByRole('button', { name: /Engineering Knowledge/ }).click();
+  await page.getByRole('button', { name: 'Add knowledge entry' }).click();
+  await page.getByPlaceholder('Title').fill('Bob private note');
+  await page.getByPlaceholder('Content').fill('walrus-details only for Bob');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Close knowledge panel' }).click();
+  const saved = await (await page.request.get('/api/memory?q=walrus')).json();
+  expect(saved, 'global context must not see a person-private note').toEqual([]);
+  const asBob = await (await page.request.get(`/api/memory?q=walrus&person_id=${bob.id}`)).json();
+  expect(asBob).toHaveLength(1); expect(asBob[0].scope).toBe('person');
+});

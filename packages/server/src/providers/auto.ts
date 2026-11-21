@@ -1,4 +1,5 @@
 import { claudeChat, checkClaudeAvailable, type ChatMessage } from './claude.js';
+import { testChat, testProviderEnabled } from './test.js';
 import { ollamaChat, checkOllamaAvailable, listOllamaModels } from './ollama.js';
 
 export async function autoChat(
@@ -6,6 +7,10 @@ export async function autoChat(
   preferredProvider: string,
   onChunk: (text: string) => void
 ): Promise<{ text: string; provider: string; model: string }> {
+
+  if (preferredProvider === 'test' && testProviderEnabled()) {
+    return { text: await testChat(messages, onChunk), provider: 'test', model: 'deterministic' };
+  }
 
   if (preferredProvider === 'claude' || preferredProvider === 'auto') {
     const available = await checkClaudeAvailable();

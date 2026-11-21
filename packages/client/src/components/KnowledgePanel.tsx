@@ -24,11 +24,12 @@ export default function KnowledgePanel({ onClose }: { onClose: () => void }) {
   const [addType, setAddType] = useState('note');
   const { activeProjectId, activePersonId, scope } = useAppStore();
 
-  useEffect(() => { load(); }, [tab, activeProjectId]);
+  useEffect(() => { load(); }, [tab, activeProjectId, activePersonId]);
 
   const load = async () => {
     const params = new URLSearchParams();
     if (activeProjectId) params.set('project_id', activeProjectId);
+    if (activePersonId) params.set('person_id', activePersonId);
     if (q) params.set('q', q);
 
     if (tab === 'memory') {
@@ -52,7 +53,7 @@ export default function KnowledgePanel({ onClose }: { onClose: () => void }) {
       method: 'POST',
       body: JSON.stringify({
         title: addTitle, content: addContent, type: addType,
-        scope: activeProjectId ? 'project' : 'global',
+        scope, // global | project | person | project_person — never widen a private context to global
         project_id: activeProjectId, person_id: activePersonId
       })
     });
@@ -75,7 +76,7 @@ export default function KnowledgePanel({ onClose }: { onClose: () => void }) {
           <Brain size={14} className="text-indigo-400" />
           <span className="font-semibold text-sm text-slate-100">Engineering Knowledge</span>
         </div>
-        <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X size={14} /></button>
+        <button onClick={onClose} aria-label="Close knowledge panel" className="text-slate-500 hover:text-slate-300"><X size={14} /></button>
       </div>
 
       {/* Search */}
@@ -87,7 +88,7 @@ export default function KnowledgePanel({ onClose }: { onClose: () => void }) {
               className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-7 pr-3 py-2 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
               placeholder="Search knowledge…" />
           </div>
-          <button onClick={() => setShowAdd(true)} className="px-3 py-2 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded-lg text-xs border border-indigo-600/20">
+          <button onClick={() => setShowAdd(true)} aria-label="Add knowledge entry" title="Add knowledge entry" className="px-3 py-2 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded-lg text-xs border border-indigo-600/20">
             <Plus size={11} />
           </button>
         </div>

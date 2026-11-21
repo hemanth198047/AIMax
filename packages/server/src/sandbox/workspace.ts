@@ -69,7 +69,15 @@ export function gitStatus(dir: string) {
 }
 export function gitDiff(dir: string, maxBytes = 200_000) {
   if (!isGitRepo(dir)) return { isRepo: false, diff: '', truncated: false };
-  const d = git(dir, ['diff', '--no-color', 'HEAD']).out;
+  let d = git(dir, ['diff', '--no-color', 'HEAD']).out;
+  // New (untracked) files are invisible to `git diff HEAD`. Render them as additions with --no-index,
+  // which reads files only and never touches the index (important in readonly/direct modes).
+  const untracked = git(dir, ['ls-files', '--others', '--exclude-standard']).out.split('\n').filter(Boolean).slice(0, 50);
+  const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  for (const f of untracked) {
+    if (d.length > maxBytes) break;
+    d += git(dir, ['diff', '--no-color', '--no-index', '--', nul, f]).out;   // exit status 1 just means "differs"
+  }
   return { isRepo: true, diff: d.slice(0, maxBytes), truncated: d.length > maxBytes };
 }
 

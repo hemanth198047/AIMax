@@ -59,3 +59,9 @@ export interface SandboxCapabilities {
 export interface SandboxFileEntry { name: string; path: string; type: 'file' | 'directory'; size: number; children?: SandboxFileEntry[] }
 export interface SandboxGit { status: { isRepo: boolean; files: { status: string; path: string }[] }; diff: string; truncated: boolean }
 export interface SandboxCheckpoint { sha: string; created_at: string; label: string }
+
+export interface UploadedAttachment {
+  id: string; filename: string; mimetype: string; size: number;
+  extracted: boolean; truncated: boolean; note: string | null; preview: string;
+}
+export interface PersonLink { id: string; display_name: string; project_role: string }

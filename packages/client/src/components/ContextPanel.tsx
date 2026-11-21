@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FolderOpen, User, Globe, Zap, Brain, Activity } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { apiFetch } from '../api/client';
+import type { PersonLink } from '../api/client';
 import clsx from 'clsx';
 
 const PROVIDERS = [
@@ -15,17 +16,37 @@ interface ProviderStatus {
   ollama: { available: boolean; models: string[] };
   cursor: { available: boolean };
   freellmapi: { available: boolean };
+  test?: { available: boolean };
 }
 
 export default function ContextPanel() {
   const { scope, activeProjectId, activePersonId, provider, setProvider, projects, people } = useAppStore();
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
+  const [linked, setLinked] = useState<PersonLink[]>([]);
+  const [linkRole, setLinkRole] = useState('contributor');
+  const [linkError, setLinkError] = useState('');
 
   useEffect(() => {
     apiFetch<ProviderStatus>('/api/providers/status')
       .then(setProviderStatus)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!activeProjectId) { setLinked([]); return; }
+    apiFetch<PersonLink[]>(`/api/projects/${activeProjectId}/people`).then(setLinked).catch(() => setLinked([]));
+  }, [activeProjectId]);
+
+  const isLinked = !!activePersonId && linked.some(l => l.id === activePersonId);
+  const toggleLink = async () => {
+    if (!activeProjectId || !activePersonId) return;
+    setLinkError('');
+    try {
+      if (isLinked) await apiFetch(`/api/projects/${activeProjectId}/people/${activePersonId}`, { method: 'DELETE' });
+      else await apiFetch(`/api/projects/${activeProjectId}/people`, { method: 'POST', body: JSON.stringify({ person_id: activePersonId, role: linkRole }) });
+      setLinked(await apiFetch<PersonLink[]>(`/api/projects/${activeProjectId}/people`));
+    } catch (e) { setLinkError(e instanceof Error ? e.message : 'Failed'); }
+  };
 
   const activeProject = projects.find(p => p.id === activeProjectId);
   const activePerson = people.find(p => p.id === activePersonId);
@@ -61,11 +82,37 @@ export default function ContextPanel() {
         </div>
       </div>
 
+      {/* Project ↔ person relationship */}
+      {activeProjectId && (
+        <div className="p-3 border-b border-slate-800" data-testid="relationships">
+          <div className="text-[10px] text-slate-600 font-medium uppercase tracking-wider mb-2">People on project</div>
+          {linked.length === 0 && <div className="text-[10px] text-slate-700">None linked yet</div>}
+          {linked.map(l => (
+            <div key={l.id} className="text-[11px] text-slate-400 flex justify-between"><span className="truncate">{l.display_name}</span><span className="text-slate-600">{l.project_role}</span></div>
+          ))}
+          {activePersonId && (
+            <div className="mt-2 space-y-1">
+              {!isLinked && (
+                <select value={linkRole} onChange={e => setLinkRole(e.target.value)} aria-label="Role on project"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-1 py-1 text-[10px] text-slate-300 focus:outline-none">
+                  {['owner', 'client', 'sponsor', 'architect', 'developer', 'tester', 'reviewer', 'stakeholder', 'manager', 'contributor', 'advisor', 'contact', 'student', 'mentor'].map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              )}
+              <button onClick={toggleLink}
+                className="w-full px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-indigo-300">
+                {isLinked ? `Unlink ${activePerson?.display_name}` : `Link ${activePerson?.display_name} to ${activeProject?.name}`}
+              </button>
+              {linkError && <div className="text-[10px] text-red-400">{linkError}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Provider Selection */}
       <div className="p-3 border-b border-slate-800">
         <div className="text-[10px] text-slate-600 font-medium uppercase tracking-wider mb-2">Provider</div>
         <div className="space-y-0.5">
-          {PROVIDERS.map(p => {
+          {(providerStatus?.test ? [...PROVIDERS, { id: 'test', label: 'Test', desc: 'Deterministic (tests only)' }] : PROVIDERS).map(p => {
             const statusOk = p.id === 'claude' ? providerStatus?.claude.available
               : p.id === 'ollama' ? providerStatus?.ollama.available
               : null;
