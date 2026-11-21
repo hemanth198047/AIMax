@@ -23,7 +23,7 @@ export const activeRunIds = () => [...active.keys()];
 
 const IS_WIN = process.platform === 'win32';
 
-function killTree(pid: number | undefined) {
+export function killTree(pid: number | undefined) {
   if (!pid) return;
   try {
     if (IS_WIN) spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });

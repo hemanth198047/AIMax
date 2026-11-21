@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User } from 'lucide-react';
 import type { Message } from '../api/client';
+import RunProposal from './RunProposal';
 import clsx from 'clsx';
 
 interface Props {
@@ -91,7 +92,9 @@ function MarkdownContent({ content }: { content: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        pre: ({ children }) => <>{children}</>,
         code({ children, className }) {
+          if (className === 'language-aimax-run') return <RunProposal command={String(children).replace(/\n$/, '')} />;
           if (!className) {
             return <code className="bg-slate-700/60 px-1.5 py-0.5 rounded text-xs font-mono text-indigo-300">{children}</code>;
           }

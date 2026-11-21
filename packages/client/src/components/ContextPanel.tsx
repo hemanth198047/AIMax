@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { FolderOpen, User, Globe, Zap, Brain, Activity } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
+import type { EnhanceMode } from '../stores/appStore';
+import { useChatStore } from '../stores/chatStore';
 import { apiFetch } from '../api/client';
 import type { PersonLink } from '../api/client';
 import clsx from 'clsx';
@@ -20,7 +22,8 @@ interface ProviderStatus {
 }
 
 export default function ContextPanel() {
-  const { scope, activeProjectId, activePersonId, provider, setProvider, projects, people } = useAppStore();
+  const { scope, activeProjectId, activePersonId, provider, setProvider, enhance, setEnhance, projects, people } = useAppStore();
+  const retrieved = useChatStore(s => s.retrieved);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [linked, setLinked] = useState<PersonLink[]>([]);
   const [linkRole, setLinkRole] = useState('contributor');
@@ -144,6 +147,27 @@ export default function ContextPanel() {
             Ollama: {providerStatus.ollama.models.slice(0, 3).join(', ')}
           </div>
         ) : null}
+      </div>
+
+      {/* Prompt enhancement */}
+      <div className="p-3 border-b border-slate-800">
+        <div className="text-[10px] text-slate-600 font-medium uppercase tracking-wider mb-2">Prompt enhancement</div>
+        <select value={enhance} onChange={e => setEnhance(e.target.value as EnhanceMode)} aria-label="Prompt enhancement"
+          className="w-full bg-slate-800 border border-slate-700 rounded px-1 py-1 text-[11px] text-slate-300 focus:outline-none">
+          {(['off', 'minimal', 'balanced', 'maximum'] as EnhanceMode[]).map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <div className="text-[9px] text-slate-700 mt-1">Deterministic · no extra model call · your words are never rewritten</div>
+      </div>
+
+      {/* Retrieved memory (last turn) */}
+      <div className="p-3 border-b border-slate-800" data-testid="retrieved-memory">
+        <div className="text-[10px] text-slate-600 font-medium uppercase tracking-wider mb-2">Retrieved memory</div>
+        {retrieved.length === 0 && <div className="text-[10px] text-slate-700">Nothing used in the last turn</div>}
+        {retrieved.map(r => (
+          <div key={r.id} className="text-[11px] text-slate-400 flex justify-between gap-2" title={`${r.scope} · ${r.provenance}`}>
+            <span className="truncate">{r.title}</span><span className="text-slate-600 flex-shrink-0">{r.provenance.replace('_', ' ')}</span>
+          </div>
+        ))}
       </div>
 
       {/* Memory */}

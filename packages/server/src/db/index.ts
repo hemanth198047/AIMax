@@ -263,6 +263,11 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       CREATE INDEX IF NOT EXISTS idx_runs_sandbox ON sandbox_runs(sandbox_id);
     `);
   },
+  // v2: provider session reuse (bound to the exact scope it was created in)
+  (db) => {
+    if (!hasColumn(db, 'conversations', 'claude_session_id')) db.exec("ALTER TABLE conversations ADD COLUMN claude_session_id TEXT DEFAULT NULL");
+    if (!hasColumn(db, 'conversations', 'claude_session_scope')) db.exec("ALTER TABLE conversations ADD COLUMN claude_session_scope TEXT DEFAULT NULL");
+  },
 ];
 
 function migrate(db: Database.Database) {

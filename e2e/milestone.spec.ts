@@ -192,3 +192,52 @@ test('privacy boundaries hold in the UI: a private memory is invisible outside i
   const asBob = await (await page.request.get(`/api/memory?q=walrus&person_id=${bob.id}`)).json();
   expect(asBob).toHaveLength(1); expect(asBob[0].scope).toBe('person');
 });
+
+test('AI proposes a command → nothing runs until approved → runs in sandbox; enhancement, activity, Stop', async ({ page }) => {
+  const post = async (url: string, data: object) => (await page.request.post(url, { data })).json();
+  await post('/api/memory', { scope: 'global', title: 'Deploy rule', content: 'The quokka-deploy rule applies to every release' });
+  const sb = await post('/api/sandbox', { name: 'Proposal sandbox', mode: 'temporary' });
+
+  await page.goto('/');
+  await sidebarTab(page, 'Chats').click();
+  await page.getByRole('button', { name: /New Conversation/ }).first().click();
+  await page.getByRole('button', { name: /^Test/ }).click();
+  await page.getByText('Sandbox', { exact: true }).click();                         // opening the panel selects the sandbox
+  await expect(page.getByText(/Proposal sandbox/).first()).toBeVisible();
+  await page.getByText('Sandbox', { exact: true }).click();                         // close it again
+
+  // propose → card appears, but nothing has run
+  const reply = await askAndRead(page, 'please check the quokka-deploy rule [test:propose]');
+  expect(reply).toContain('Deploy rule');
+  const card = page.getByTestId('run-proposal');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('echo proposed-ok');
+  const before = await (await page.request.get(`/api/sandbox/${sb.id}/runs`)).json();
+  expect(before).toHaveLength(0);                                                    // approval gate: no run before the click
+  await expect(page.getByTestId('activity')).toContainText('classify');
+  await expect(page.getByTestId('activity')).toContainText('memory');
+  await expect(page.getByTestId('activity')).toContainText('enhance');
+  await expect(page.getByTestId('retrieved-memory')).toContainText('Deploy rule');
+
+  // approve
+  await card.getByRole('button', { name: /Run in sandbox/ }).click();
+  await expect(page.getByTestId('run-proposal-output')).toContainText('done-from-proposal');
+  await expect(page.getByTestId('run-proposal-output')).toContainText('exit 0');
+  const after = await (await page.request.get(`/api/sandbox/${sb.id}/runs`)).json();
+  expect(after).toHaveLength(1); expect(after[0].exit_code).toBe(0);
+  await shot(page, '07-proposal-run');
+
+  // enhancement off → no guidance block
+  await page.getByLabel('Prompt enhancement').selectOption('off');
+  const off = await askAndRead(page, 'fix the failing build in the whole codebase');
+  expect(off).toContain('guidance: no');
+
+  // Stop keeps the partial answer, marked as stopped
+  const box = page.getByPlaceholder(/Message AImax/);
+  const n = await page.getByTestId('msg-assistant').count();
+  await box.fill('long answer please [test:slow]'); await box.press('Enter');
+  await expect(page.getByText(/slow-\d/).first()).toBeVisible();                    // some output has streamed
+  await page.getByTitle('Stop').click();
+  await expect(page.getByTestId('msg-assistant')).toHaveCount(n + 1, { timeout: 15_000 });
+  await expect(lastAssistant(page)).toContainText('(stopped)');
+});

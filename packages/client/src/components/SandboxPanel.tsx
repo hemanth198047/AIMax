@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Terminal, Play, Square, Plus, Trash2, FolderOpen, File as FileIcon, ChevronDown, ChevronUp, GitBranch, Save, RotateCcw, Shield } from 'lucide-react';
 import { apiFetch } from '../api/client';
+import { streamRun, cancelRun } from '../api/sandboxRun';
 import type { Sandbox, SandboxMode, SandboxCapabilities, SandboxFileEntry, SandboxGit, SandboxCheckpoint } from '../api/client';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
@@ -13,11 +14,10 @@ const MODE_LABEL: Record<SandboxMode, string> = {
 };
 
 export default function SandboxPanel() {
-  const { activeProjectId, projects } = useAppStore();
+  const { activeProjectId, projects, activeSandboxId: activeId, setActiveSandbox: setActiveId } = useAppStore();
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState<Tab>('terminal');
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [caps, setCaps] = useState<SandboxCapabilities | null>(null);
   const [newMode, setNewMode] = useState<SandboxMode>('temporary');
   const [command, setCommand] = useState('');
@@ -38,8 +38,10 @@ export default function SandboxPanel() {
   const loadSandboxes = useCallback(async () => {
     const all = await apiFetch<Sandbox[]>('/api/sandbox').catch(() => []);
     setSandboxes(all);
-    setActiveId(cur => cur ?? all[0]?.id ?? null);
-  }, []);
+    const cur = useAppStore.getState().activeSandboxId;
+    // keep a persisted selection only if it still exists
+    setActiveId(cur && all.some(x => x.id === cur) ? cur : all[0]?.id ?? null);
+  }, [setActiveId]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -86,46 +88,24 @@ export default function SandboxPanel() {
     setRunning(true); setRunId(null);
     say(`$ ${cmd}`, 'info');
     const ctrl = new AbortController(); abortRef.current = ctrl;
-    try {
-      const res = await fetch(`/api/sandbox/${active.id}/run`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-        body: JSON.stringify({ command: cmd, timeout: 60000, confirm }),
-      });
-      if (!res.ok || !res.body) {
-        const j = await res.json().catch(() => ({} as { error?: string; needs_confirmation?: boolean }));
-        if (j.needs_confirmation && window.confirm(`${j.error}\n\nRun anyway?\n\n${cmd}`)) { setRunning(false); return execute(true, cmd); }
-        throw new Error(j.error ?? `HTTP ${res.status}`);
-      }
-      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let i: number;
-        while ((i = buf.indexOf('\n\n')) >= 0) {
-          const block = buf.slice(0, i); buf = buf.slice(i + 2);
-          const ev = /^event: (.+)$/m.exec(block)?.[1]; const data = /^data: (.+)$/m.exec(block)?.[1];
-          if (!ev || !data) continue;
-          const d = JSON.parse(data);
-          if (ev === 'start') setRunId(d.runId);
-          else if (ev === 'chunk') String(d.text).split('\n').filter((l: string) => l.length).forEach((l: string) => say(l, d.stream === 'stderr' ? 'stderr' : 'stdout'));
-          else if (ev === 'done') {
-            const note = d.status === 'timeout' ? 'timed out' : d.status === 'cancelled' ? 'cancelled' : d.truncated ? 'output truncated' : '';
-            say(`exit ${d.exitCode} · ${d.durationMs}ms${note ? ' · ' + note : ''}`, d.exitCode === 0 ? 'info' : 'error');
-          }
-        }
-      }
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') say(`Error: ${errMsg(e)}`, 'error');
-    } finally {
-      setRunning(false); setRunId(null); abortRef.current = null;
-      refreshInspector(active.id);
+    const r = await streamRun(active.id, cmd, {
+      onStart: setRunId,
+      onChunk: (t, stream) => t.split('\n').filter(l => l.length).forEach(l => say(l, stream === 'stderr' ? 'stderr' : 'stdout')),
+      onDone: d => {
+        const note = d.status === 'timeout' ? 'timed out' : d.status === 'cancelled' ? 'cancelled' : d.truncated ? 'output truncated' : '';
+        say(`exit ${d.exitCode} · ${d.durationMs}ms${note ? ' · ' + note : ''}`, d.exitCode === 0 ? 'info' : 'error');
+      },
+    }, { confirm, signal: ctrl.signal });
+    setRunning(false); setRunId(null); abortRef.current = null;
+    if (!r.ok) {
+      if (r.needsConfirmation && window.confirm(`${r.message}\n\nRun anyway?\n\n${cmd}`)) return execute(true, cmd);
+      say(`Error: ${r.message}`, 'error');
     }
+    refreshInspector(active.id);
   };
 
   const stop = async () => {
-    if (runId) await apiFetch(`/api/sandbox/runs/${runId}/cancel`, { method: 'POST' }).catch(() => undefined);
-    else abortRef.current?.abort();
+    if (runId) await cancelRun(runId); else abortRef.current?.abort();
   };
 
   const openFile = async (path: string) => {

@@ -4,6 +4,7 @@ import type { Project, Person, Conversation } from '../api/client';
 
 type SidebarSection = 'conversations' | 'projects' | 'people' | 'memory' | 'tasks';
 type Scope = 'global' | 'project' | 'person' | 'project_person';
+export type EnhanceMode = 'off' | 'minimal' | 'balanced' | 'maximum';
 
 interface AppState {
   activeProjectId: string | null;
@@ -11,6 +12,8 @@ interface AppState {
   activeConversationId: string | null;
   scope: Scope;
   provider: string;
+  enhance: EnhanceMode;
+  activeSandboxId: string | null;
   sidebarSection: SidebarSection;
   projects: Project[];
   people: Person[];
@@ -21,6 +24,8 @@ interface AppState {
   setActiveConversation: (id: string | null) => void;
   setScope: (s: Scope) => void;
   setProvider: (p: string) => void;
+  setEnhance: (m: EnhanceMode) => void;
+  setActiveSandbox: (id: string | null) => void;
   setSidebarSection: (s: SidebarSection) => void;
   setProjects: (p: Project[]) => void;
   setPeople: (p: Person[]) => void;
@@ -42,6 +47,8 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   activeConversationId: null,
   scope: 'global',
   provider: 'auto',
+  enhance: 'balanced',
+  activeSandboxId: null,
   sidebarSection: 'conversations',
   projects: [],
   people: [],
@@ -52,6 +59,8 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   setActiveConversation: (id) => set({ activeConversationId: id }),
   setScope: (scope) => set({ scope }),
   setProvider: (provider) => set({ provider }),
+  setEnhance: (enhance) => set({ enhance }),
+  setActiveSandbox: (activeSandboxId) => set({ activeSandboxId }),
   setSidebarSection: (sidebarSection) => set({ sidebarSection }),
   setProjects: (projects) => set({ projects }),
   setPeople: (people) => set({ people }),
@@ -70,6 +79,6 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   // Only the user's selections survive a reload/restart; data lists are re-fetched from the server.
   partialize: (s) => ({
     activeProjectId: s.activeProjectId, activePersonId: s.activePersonId, activeConversationId: s.activeConversationId,
-    scope: s.scope, provider: s.provider, sidebarSection: s.sidebarSection,
+    scope: s.scope, provider: s.provider, enhance: s.enhance, activeSandboxId: s.activeSandboxId, sidebarSection: s.sidebarSection,
   }),
 }));

@@ -9,7 +9,7 @@ import type { Message } from '../api/client';
 
 export default function ChatView() {
   const { activeConversationId, scope, activeProjectId, activePersonId, projects, people } = useAppStore();
-  const { messages, setMessages, streaming, streamingText, streamingConvId } = useChatStore();
+  const { messages, setMessages, streaming, streamingText, streamingConvId, activity } = useChatStore();
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -78,6 +78,13 @@ export default function ChatView() {
         streaming={isStreaming}
         streamingText={isStreaming ? streamingText : ''}
       />
+      {activity.length > 0 && (
+        <div className="px-4 py-1.5 border-t border-slate-800 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-600" data-testid="activity">
+          {activity.map((a, i) => (
+            <span key={i} className={a.step === 'error' ? 'text-red-400' : ''}><span className="text-slate-500">{a.step}</span> · {a.detail}</span>
+          ))}
+        </div>
+      )}
       <MessageInput conversationId={activeConversationId} />
     </div>
   );

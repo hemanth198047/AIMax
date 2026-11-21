@@ -14,8 +14,8 @@ export default function MessageInput({ conversationId }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const { provider, activeProjectId, activePersonId, scope, setConversations, conversations, setActiveConversation } = useAppStore();
-  const { addMessage, setStreaming, appendStreamingText, clearStreaming, streaming } = useChatStore();
+  const { provider, enhance, activeProjectId, activePersonId, scope, setConversations, conversations, setActiveConversation } = useAppStore();
+  const { addMessage, setStreaming, appendStreamingText, clearStreaming, streaming, addActivity, setRetrieved, resetTurn } = useChatStore();
 
   const uploadFiles = async (files: File[]) => {
     setUploadError('');
@@ -52,7 +52,7 @@ export default function MessageInput({ conversationId }: Props) {
       created_at: new Date().toISOString()
     });
 
-    setStreaming(true, conversationId);
+    setStreaming(true, conversationId); resetTurn();
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -68,6 +68,7 @@ export default function MessageInput({ conversationId }: Props) {
           personId: activePersonId,
           provider,
           scope,
+          enhance,
           attachmentIds: sentAttachments.map(a => a.id)
         }),
         signal: ctrl.signal
@@ -83,29 +84,18 @@ export default function MessageInput({ conversationId }: Props) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6)) as {
-              text?: string; conversationId?: string; messageId?: string;
-              provider?: string; message?: string;
-            };
-            if (data.text) appendStreamingText(data.text);
-          } catch { /* skip */ }
+        let i: number;
+        while ((i = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, i); buffer = buffer.slice(i + 2);
+          const ev = /^event: (.+)$/m.exec(block)?.[1]; const raw = /^data: (.+)$/m.exec(block)?.[1];
+          if (!ev || !raw) continue;
+          let d: any; try { d = JSON.parse(raw); } catch { continue; }
+          if (ev === 'chunk' && d.text) appendStreamingText(d.text);
+          else if (ev === 'activity') addActivity({ step: d.step, detail: d.detail });
+          else if (ev === 'context') setRetrieved(d.items ?? []);
+          else if (ev === 'error') addActivity({ step: 'error', detail: d.message });
         }
       }
-
-      // Reload messages after streaming completes
-      const msgs = await apiFetch<Message[]>(`/api/conversations/${conversationId}/messages`);
-      useChatStore.getState().setMessages(conversationId, msgs);
-
-      // Refresh conversation list
-      const convs = await apiFetch<Conversation[]>('/api/conversations');
-      setConversations(convs);
-
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         console.error('Chat error:', err);
@@ -113,8 +103,20 @@ export default function MessageInput({ conversationId }: Props) {
     } finally {
       clearStreaming();
       abortRef.current = null;
+      // Always reload: after Stop the server keeps the partial answer, and the list must show what was really saved.
+      try {
+        const load = () => apiFetch<Message[]>(`/api/conversations/${conversationId}/messages`);
+        let msgs = await load();
+        if (ctrl.signal.aborted) {
+          // The server saves the partial answer slightly after it notices the disconnect; re-check briefly.
+          const had = msgs.length;
+          for (let i = 0; i < 6 && msgs.length === had; i++) { await new Promise(r => setTimeout(r, 250)); msgs = await load(); }
+        }
+        useChatStore.getState().setMessages(conversationId, msgs);
+        setConversations(await apiFetch<Conversation[]>('/api/conversations'));
+      } catch { /* offline */ }
     }
-  }, [input, attachments, conversationId, provider, activeProjectId, activePersonId, scope, streaming]);
+  }, [input, attachments, conversationId, provider, enhance, activeProjectId, activePersonId, scope, streaming]);
 
   return (
     <div className="border-t border-slate-700/50 bg-slate-900/80 backdrop-blur p-3"

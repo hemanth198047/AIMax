@@ -24,12 +24,12 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 | 8 | Real sandbox | ✅ process-level · 🟡 container | Modes `readonly`/`temporary`/`container`/`direct` are enforced and tested (scrubbed env, timeout + process-tree kill, output cap, path-escape/symlink guard, approval for direct, confirm for destructive). **Temporary mode is NOT a security boundary** (runs as your OS user). **Container mode is implemented but NOT VERIFIED** — no Docker daemon was available to test; its test runs when `AIMAX_TEST_DOCKER_IMAGE` is set. Memory/CPU *reporting* and pause/resume/snapshot not built. |
 | 9 | Terminal / file explorer / git / checkpoints | ✅ API · 🟡 UI | Streaming terminal with Stop, file tree + viewer, git status/diff, checkpoints + restore (tested over HTTP). UI compiles and builds but **was not visually verified in a browser**. No app preview / port detection yet. |
 | 10 | Playwright | ❌ | |
-| 11 | Gateway / prompt enhancement | ❌ | Chat just forwards last 20 msgs + 5 memory rows. |
+| 11 | Gateway / prompt enhancement | 🟡 browser-verified | Deterministic (no LLM): task classifier, prompt enhancement (off/minimal/balanced/maximum; your text is never rewritten, guidance is appended in a labeled block), keyword context retrieval with a char budget (current message + last 2 user turns). Activity strip + "Retrieved memory" panel in the UI. Heuristic classifier only; no token counting, no caching, no routing by task. |
 | 12 | MemoryVault | ✅ (this stage) | FTS5 + triggers, strict scope enforcement, tests. Missing: provenance workflow, staleness, auditor. |
 | 13 | Engineering knowledge | 🟡 | Decisions/solutions/failures CRUD; fingerprint uses `LIKE`. |
 | 14–16 | Caching, graphs, continuity | ❌ | |
 | 17 | MCP server | 🟡 | 11 tools over plain HTTP (`/mcp/call`). **Not real MCP protocol (no JSON-RPC/stdio)**, so Claude Code cannot attach it as-is. Generated config snippet is not valid. |
-| 18 | Claude adapter | 🟡 | `claude -p` text mode, whole history re-sent each call, no sessions/streaming/cancel. |
+| 18 | Claude adapter | 🟡 **real CLI UNVERIFIED** | `claude -p --output-format stream-json` streaming, session resume (new turn only, falls back to full history), cancel (Stop kills the process and saves the partial answer), sessions bound to the exact project/person scope, all CLI tools disabled, empty cwd. Tested only against a **fake CLI** that emulates the assumed event format; flags came from `--help`, never run against a real Claude. The AI cannot touch the sandbox itself: it can only *propose* a command in an `aimax-run` block, which runs only after you click Run (verified in browser). Windows `.cmd` shim handling untested. |
 | 19–20 | Cursor / Codex | ❌ | Reported "unavailable". |
 | 21 | Subscription compliance | ❌ | Nothing tracks states/limits/zero-overage. |
 | 22 | Ollama | 🟡 | Chat + model list. Always picks `models[0]`. No embeddings. |
@@ -47,6 +47,12 @@ Legend: ✅ verified working · 🟡 partial/unverified · ❌ not started
 5. **PARTLY FIXED** — decisions/solutions/failures/discoveries, fingerprint and MCP tools are now project-scoped (no project ⇒ global rows only; tested). **Still open:** person scope on decisions, conversations/messages/attachments/tasks listings are unfiltered (they are only used for the owner's own UI, but must be scoped before any provider handoff/export).
 6. **OPEN** — Hard-coded `D:\…` paths (pixelslop, LinkVault) and fake provider versions; should come from config/discovery.
 7. **OPEN** — Windows-only paths (`AppData\Roaming`); now overridable with `AIMAX_DATA_DIR`.
+
+## Stage 4 — gateway, Claude adapter, approval-gated sandbox use
+- 51 server tests (50 pass, 1 skipped = Docker), 3 Playwright tests pass (3 consecutive runs), client + server typecheck, vite build OK.
+- New e2e: AI proposes a command → no run exists until approval → click Run → output + exit 0 in the sandbox; enhancement `off` removes guidance; activity strip and retrieved-memory panel populate; Stop keeps the partial answer marked `(stopped)`.
+- Fixed along the way: Stop could lose the partial answer in the UI (client reloaded before the server saved it); Ollama NDJSON lines split across chunks.
+- Not verified: real `claude` CLI, real Ollama, Windows, container mode. Fenced code blocks without a language tag render inline-style (pre-existing quirk, made visible by the proposal override).
 
 ## Stage 3 — first working milestone (§151), browser-verified
 `npm run test:e2e` drives the real UI in real Chrome against the real server and SQLite DB. Only the AI provider is replaced by a
@@ -89,8 +95,7 @@ icon-only buttons had no accessible names.
 ## Recommended next stage
 1. **Run on your Windows machine**: `npm install`, `npx playwright install chromium`, then `npm test` and `npm run test:e2e`
    (and with Docker Desktop: `set AIMAX_TEST_DOCKER_IMAGE=node:22-slim`). Windows paths and container isolation are still unproven.
-2. **Phase 11 + 18 — gateway and a real Claude adapter**: task classification, deterministic prompt enhancement, context budget
-   (recent-turn keywords), and `claude` with sessions/streaming/cancel **plus a tool loop that can use the sandbox via approval prompts**.
+2. **Verify the real Claude CLI** on your machine (send one short message with provider Claude and report what happens); the adapter has only seen a fake.
 3. **Phase 7 (rest)**: PDF/DOCX/XLSX extraction, previews, zip-slip/decompression guards, image handling.
 4. Real MCP server (JSON-RPC) so Claude Code can attach to the memory/project tools.
 5. Remaining scope gaps: conversations/messages/tasks listings and person scope on decisions.
