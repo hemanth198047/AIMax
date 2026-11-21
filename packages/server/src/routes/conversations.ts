@@ -7,11 +7,18 @@ import { bothClause, visibleConversation } from '../memory/projectScope.js';
 export async function conversationsRoutes(app: FastifyInstance) {
   app.get('/api/conversations', async (req) => {
     // Only conversations visible in the active context are listed (same rules as memory).
-    const { project_id, person_id } = req.query as Record<string, string>;
+    const { project_id, person_id, q, archived } = req.query as Record<string, string>;
     const db = getDb();
-    const c = bothClause({ projectId: project_id, personId: person_id });
-    const sql = `SELECT * FROM conversations WHERE archived=0 AND ${c.sql} ORDER BY pinned DESC, updated_at DESC`;
-    const args: unknown[] = c.args;
+    const c = bothClause({ projectId: project_id, personId: person_id }, 'c.project_id', 'c.person_id');
+    const args: unknown[] = [...c.args];
+    let sql = `SELECT c.* FROM conversations c WHERE c.archived=? AND ${c.sql}`;
+    args.unshift(archived === '1' ? 1 : 0); // archived flag is the first placeholder
+    if (q && q.trim()) {
+      const like = `%${q.trim().slice(0, 100).replace(/[\\%_]/g, m => '\\' + m)}%`;
+      sql += ` AND (c.title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.content LIKE ? ESCAPE '\\'))`;
+      args.push(like, like);
+    }
+    sql += ' ORDER BY c.pinned DESC, c.updated_at DESC LIMIT 200';
     return db.prepare(sql).all(...args);
   });
 

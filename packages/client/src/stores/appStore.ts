@@ -15,6 +15,10 @@ interface AppState {
   enhance: EnhanceMode;
   activeSandboxId: string | null;
   sidebarSection: SidebarSection;
+  convQuery: string;
+  showArchived: boolean;
+  setConvQuery: (q: string) => void;
+  setShowArchived: (v: boolean) => void;
   projects: Project[];
   people: Person[];
   conversations: Conversation[];
@@ -50,6 +54,10 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   enhance: 'balanced',
   activeSandboxId: null,
   sidebarSection: 'conversations',
+  convQuery: '',
+  showArchived: false,
+  setConvQuery: (convQuery) => set({ convQuery }),
+  setShowArchived: (showArchived) => set({ showArchived }),
   projects: [],
   people: [],
   conversations: [],

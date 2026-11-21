@@ -1,7 +1,8 @@
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  // Only declare JSON when there is a body: Fastify rejects an empty body that claims to be JSON (e.g. DELETE).
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options
+    ...options,
+    headers: { ...(options?.body ? { 'Content-Type': 'application/json' } : {}), ...options?.headers },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };

@@ -1,6 +1,6 @@
-import { ctxQs } from '../api/conversations';
-import React, { useState } from 'react';
-import { Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X, Link, Lightbulb } from 'lucide-react';
+import { loadConversations, ctxQs } from '../api/conversations';
+import React, { useEffect, useState } from 'react';
+import { Pin, Pencil, Archive, ArchiveRestore, Search, Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X, Link, Lightbulb } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { apiFetch } from '../api/client';
 import type { Conversation, Project, Person } from '../api/client';
@@ -17,7 +17,8 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
   const {
     sidebarSection, setSidebarSection, conversations, projects, people,
     activeConversationId, setActiveConversation, setConversations,
-    activeProjectId, setActiveProject, activePersonId, setActivePerson, scope
+    activeProjectId, setActiveProject, activePersonId, setActivePerson, scope,
+    convQuery, setConvQuery, showArchived, setShowArchived
   } = useAppStore();
 
   const [showProjectCreate, setShowProjectCreate] = useState(false);
@@ -30,6 +31,21 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
     });
     setConversations([conv, ...conversations]);
     setActiveConversation(conv.id);
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => { loadConversations().catch(console.error); }, 200);   // debounce search typing
+    return () => clearTimeout(t);
+  }, [convQuery, showArchived]);
+
+  const patchConversation = async (e: React.MouseEvent, conv: Conversation, body: Record<string, unknown>) => {
+    e.stopPropagation();
+    await apiFetch(`/api/conversations/${conv.id}${ctxQs()}`, { method: 'PATCH', body: JSON.stringify(body) });
+    await loadConversations();
+  };
+  const renameConversation = (e: React.MouseEvent, conv: Conversation) => {
+    const title = window.prompt('Rename conversation', conv.title)?.trim();
+    if (title) void patchConversation(e, conv, { title: title.slice(0, 120) }); else e.stopPropagation();
   };
 
   const deleteConversation = async (e: React.MouseEvent, id: string) => {
@@ -91,31 +107,42 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
         {/* Conversations */}
         {sidebarSection === 'conversations' && (
           <div className="p-2 space-y-0.5">
+            <div className="flex items-center gap-1 px-1 pb-1">
+              <div className="relative flex-1">
+                <Search size={11} className="absolute left-2 top-2 text-slate-600" />
+                <input value={convQuery} onChange={e => setConvQuery(e.target.value)} placeholder="Search chats…" aria-label="Search conversations"
+                  className="w-full bg-slate-800 border border-slate-700 rounded pl-6 pr-2 py-1 text-[11px] text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500/60" />
+              </div>
+              <button onClick={() => setShowArchived(!showArchived)} title={showArchived ? 'Showing archived — click for active' : 'Show archived'} aria-label="Toggle archived"
+                className={clsx('p-1 rounded', showArchived ? 'text-indigo-400 bg-indigo-600/20' : 'text-slate-600 hover:text-slate-300')}><Archive size={12} /></button>
+            </div>
             {conversations.length === 0 && (
-              <p className="text-slate-600 text-xs px-2 py-6 text-center">Start a conversation above</p>
+              <p className="text-slate-600 text-xs px-2 py-6 text-center">{convQuery ? 'No matching conversations' : showArchived ? 'No archived conversations' : 'Start a conversation above'}</p>
             )}
             {conversations.map((conv) => (
-              <button
+              <div
                 key={conv.id}
+                role="button" tabIndex={0} data-testid="conversation-item"
                 onClick={() => setActiveConversation(conv.id)}
+                onKeyDown={e => { if (e.key === 'Enter') setActiveConversation(conv.id); }}
                 className={clsx(
-                  'w-full text-left px-3 py-2 rounded-lg text-xs group relative transition-colors',
+                  'w-full text-left px-3 py-2 rounded-lg text-xs group relative transition-colors cursor-pointer',
                   activeConversationId === conv.id
                     ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-600/20'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                 )}
               >
-                <div className="truncate pr-5">{conv.title}</div>
+                <div className="truncate pr-16 flex items-center gap-1">{conv.pinned ? <Pin size={9} className="text-indigo-400 flex-shrink-0" /> : null}<span className="truncate">{conv.title}</span></div>
                 {conv.scope !== 'global' && (
                   <div className="text-[10px] text-slate-600 capitalize mt-0.5">{conv.scope.replace('_', '+')}</div>
                 )}
-                <button
-                  onClick={(e) => deleteConversation(e, conv.id)}
-                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-opacity"
-                >
-                  <X size={10} />
-                </button>
-              </button>
+                <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 text-slate-600 transition-opacity">
+                  <button aria-label="Pin conversation" title={conv.pinned ? 'Unpin' : 'Pin'} onClick={e => patchConversation(e, conv, { pinned: conv.pinned ? 0 : 1 })} className="hover:text-indigo-400"><Pin size={10} /></button>
+                  <button aria-label="Rename conversation" title="Rename" onClick={e => renameConversation(e, conv)} className="hover:text-slate-200"><Pencil size={10} /></button>
+                  <button aria-label={conv.archived ? 'Restore conversation' : 'Archive conversation'} title={conv.archived ? 'Restore' : 'Archive'} onClick={e => patchConversation(e, conv, { archived: conv.archived ? 0 : 1 })} className="hover:text-slate-200">{conv.archived ? <ArchiveRestore size={10} /> : <Archive size={10} />}</button>
+                  <button aria-label="Delete conversation" title="Delete" onClick={e => deleteConversation(e, conv.id)} className="hover:text-red-400"><X size={10} /></button>
+                </div>
+              </div>
             ))}
           </div>
         )}

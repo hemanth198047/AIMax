@@ -241,3 +241,46 @@ test('AI proposes a command → nothing runs until approved → runs in sandbox;
   await expect(page.getByTestId('msg-assistant')).toHaveCount(n + 1, { timeout: 15_000 });
   await expect(lastAssistant(page)).toContainText('(stopped)');
 });
+
+test('chat management: rename, pin, archive/restore, search, delete — all through the sidebar', async ({ page }) => {
+  const post = async (url: string, data: object) => (await page.request.post(url, { data })).json();
+  await post('/api/conversations', { title: 'Alpha plans' }); await post('/api/conversations', { title: 'Beta notes' });
+  await page.goto('/');
+  await sidebarTab(page, 'Chats').click();
+  const items = page.getByTestId('conversation-item');
+  const item = (t: string) => items.filter({ hasText: t });
+  await expect(item('Alpha plans')).toBeVisible(); await expect(item('Beta notes')).toBeVisible();
+
+  // search
+  await page.getByLabel('Search conversations').fill('Beta');
+  await expect(item('Alpha plans')).toHaveCount(0); await expect(item('Beta notes')).toBeVisible();
+  await page.getByLabel('Search conversations').fill('');
+  await expect(item('Alpha plans')).toBeVisible();
+
+  // rename (prompt dialog)
+  page.once('dialog', d => d.accept('Alpha renamed'));
+  await item('Alpha plans').hover(); await item('Alpha plans').getByLabel('Rename conversation').click();
+  await expect(item('Alpha renamed')).toBeVisible();
+
+  // pin → first in list
+  await item('Beta notes').hover(); await item('Beta notes').getByLabel('Pin conversation').click();
+  await expect(items.first()).toContainText('Beta notes');
+
+  // archive → disappears; archived view shows it; restore brings it back
+  await item('Alpha renamed').hover(); await item('Alpha renamed').getByLabel('Archive conversation').click();
+  await expect(item('Alpha renamed')).toHaveCount(0);
+  await page.getByLabel('Toggle archived').click();
+  await expect(item('Alpha renamed')).toBeVisible();
+  await item('Alpha renamed').hover(); await item('Alpha renamed').getByLabel('Restore conversation').click();
+  await page.getByLabel('Toggle archived').click();
+  await expect(item('Alpha renamed')).toBeVisible();
+
+  // survives reload (it is stored on the server)
+  await page.reload(); await sidebarTab(page, 'Chats').click();
+  await expect(items.first()).toContainText('Beta notes');
+  await expect(item('Alpha renamed')).toBeVisible();
+
+  // delete
+  await item('Beta notes').hover(); await item('Beta notes').getByLabel('Delete conversation').click();
+  await expect(item('Beta notes')).toHaveCount(0);
+});

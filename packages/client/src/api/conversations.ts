@@ -3,8 +3,10 @@ import { useAppStore } from '../stores/appStore';
 
 /** Load the conversations visible in the CURRENT project/person context (the server enforces the scope rules). */
 export async function loadConversations(): Promise<void> {
-  const { activeProjectId, activePersonId } = useAppStore.getState();
+  const { activeProjectId, activePersonId, convQuery, showArchived } = useAppStore.getState();
   const q = new URLSearchParams();
+  if (convQuery.trim()) q.set('q', convQuery.trim());
+  if (showArchived) q.set('archived', '1');
   if (activeProjectId) q.set('project_id', activeProjectId);
   if (activePersonId) q.set('person_id', activePersonId);
   const list = await apiFetch<Conversation[]>(`/api/conversations?${q}`);
