@@ -20,7 +20,8 @@ import { attachmentsRoutes } from './routes/attachments.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001');
 
-const app = Fastify({ logger: { level: 'info' } });
+// 'warn' by default: per-request info lines drowned the console (the launcher polls the API). Set AIMAX_LOG_LEVEL=info for request logs.
+const app = Fastify({ logger: { level: process.env.AIMAX_LOG_LEVEL || 'warn' } });
 
 await app.register(cors, {
   origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:3001']
