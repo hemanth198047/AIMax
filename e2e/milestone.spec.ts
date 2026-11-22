@@ -479,3 +479,18 @@ test('copy: message copy buttons and code-block copy put the exact text on the c
   expect(await clip()).toBe('please show code [test:code]');
   await shot(page, '12-copy');
 });
+
+test('project overview opens from the sidebar and shows only that project\'s data', async ({ page }) => {
+  const post = async (url: string, data: object) => (await page.request.post(url, { data })).json();
+  const proj = await post('/api/projects', { name: 'Overview Proj' });
+  await post('/api/tasks', { title: 'Overview-only task', project_id: proj.id, priority: 'high' });
+  await post('/api/tasks', { title: 'Other project task' });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByTestId(`overview-${proj.id}`).click();
+  const dlg = page.getByTestId('project-overview');
+  await expect(dlg.getByText('Overview Proj — overview')).toBeVisible();
+  await expect(dlg.getByText('Overview-only task')).toBeVisible();
+  await expect(dlg.getByText('Other project task')).toHaveCount(0);
+  await dlg.getByLabel('Close').click(); await expect(dlg).toHaveCount(0);
+});

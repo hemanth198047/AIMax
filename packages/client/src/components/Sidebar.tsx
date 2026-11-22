@@ -12,10 +12,11 @@ interface SidebarProps {
   onShowKnowledge: () => void;
   onShowLinkVault: () => void;
   onShowImport: () => void;
+  onShowProject: (id: string) => void;
   onShowSettings: () => void;
 }
 
-export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport, onShowSettings }: SidebarProps) {
+export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport, onShowProject, onShowSettings }: SidebarProps) {
   const {
     sidebarSection, setSidebarSection, conversations, projects, people,
     activeConversationId, setActiveConversation, setConversations,
@@ -172,7 +173,8 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport
                     : 'text-slate-400 hover:bg-slate-800'
                 )}
               >
-                <div className="truncate font-medium">{p.name}</div>
+                <div className="flex items-center justify-between gap-1"><div className="truncate font-medium">{p.name}</div>
+                  <span role="button" tabIndex={0} aria-label={`Overview of ${p.name}`} data-testid={`overview-${p.id}`} title="Project overview" onClick={(e) => { e.stopPropagation(); onShowProject(p.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onShowProject(p.id); } }} className="text-[10px] text-slate-500 hover:text-indigo-300 px-1">Overview</span></div>
                 <div className="text-[10px] text-slate-600 capitalize mt-0.5">{p.category} · {p.status}</div>
               </button>
             ))}

@@ -59,3 +59,23 @@ test('knowledge is project-scoped: no project → only global rows; project → 
   const fpFix = fp.existing_work.filter((w: { source: string }) => w.source === 'solution').map((w: { content: string }) => w.content);
   assert.ok(!fpFix.includes('p2 fix')); assert.ok(fpFix.includes('p1 fix'));
 });
+
+test('project overview: counts only this project, 404 for unknown, tokens from this project only', async () => {
+  const a = (await call('POST', '/api/projects', { name: 'OvA' })).body; const b = (await call('POST', '/api/projects', { name: 'OvB' })).body;
+  const db = getDb(); const now = new Date().toISOString();
+  db.prepare("INSERT INTO conversations(id,title,scope,project_id,provider,created_at,updated_at) VALUES('ca','chat A','project',?,'claude',?,?)").run(a.id, now, now);
+  db.prepare("INSERT INTO conversations(id,title,scope,project_id,provider,created_at,updated_at) VALUES('cb','chat B','project',?,'claude',?,?)").run(b.id, now, now);
+  await call('POST', '/api/tasks', { title: 'A task', project_id: a.id, priority: 'high' }); await call('POST', '/api/tasks', { title: 'B task', project_id: b.id });
+  db.prepare("INSERT INTO usage_events(id,ts,provider,project_id,input_chars,output_chars,ok) VALUES('u1',?,'claude',?,4000,400,1)").run(now, a.id);
+  const r = await call('GET', `/api/projects/${a.id}/overview`);
+  assert.equal(r.status, 200); assert.equal(r.body.counts.conversations, 1); assert.deepEqual(r.body.openTasks.map((t: { title: string }) => t.title), ['A task']);
+  assert.equal(r.body.tokens30d[0].tokensIn, 1000); assert.equal(r.body.recentConversations[0].title, 'chat A');
+  assert.equal((await call('GET', '/api/projects/nope/overview')).status, 404);
+});
+
+test('project overview lists linked people by display name', async () => {
+  const p = (await call('POST', '/api/projects', { name: 'OvC' })).body;
+  const db = getDb(); db.prepare("INSERT INTO people(id,display_name) VALUES('pz','Zed Person')").run();
+  db.prepare("INSERT INTO project_people(id,project_id,person_id,role) VALUES('l1',?,'pz','lead')").run(p.id);
+  assert.deepEqual((await call('GET', `/api/projects/${p.id}/overview`)).body.people, [{ id: 'pz', name: 'Zed Person', role: 'lead' }]);
+});

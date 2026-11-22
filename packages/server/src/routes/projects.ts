@@ -8,6 +8,30 @@ export async function projectsRoutes(app: FastifyInstance) {
     return getDb().prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
   });
 
+  /** One-screen summary of a project: activity, memory, tasks, decisions, people and 30-day token use. Project-scoped rows only. */
+  app.get<{ Params: { id: string } }>('/api/projects/:id/overview', async (req, reply) => {
+    const db = getDb(); const id = req.params.id;
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!project) return reply.status(404).send({ error: 'Not found' });
+    const n = (sql: string) => (db.prepare(sql).get(id) as { n: number }).n;
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    return {
+      project,
+      counts: {
+        conversations: n("SELECT COUNT(*) n FROM conversations WHERE project_id=? AND archived=0"),
+        messages: n("SELECT COUNT(*) n FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id=?)"),
+        memory: n("SELECT COUNT(*) n FROM memory_entries WHERE project_id=?"),
+        decisions: n("SELECT COUNT(*) n FROM decisions WHERE project_id=?"),
+      },
+      tasks: db.prepare("SELECT status, COUNT(*) n FROM tasks WHERE project_id=? GROUP BY status").all(id),
+      openTasks: db.prepare("SELECT id,title,priority,status,due_date FROM tasks WHERE project_id=? AND status NOT IN ('done','completed','cancelled') ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, due_date='' , due_date LIMIT 8").all(id),
+      people: db.prepare("SELECT p.id, p.display_name AS name, pp.role FROM project_people pp JOIN people p ON p.id=pp.person_id WHERE pp.project_id=? ORDER BY p.display_name").all(id),
+      recentConversations: db.prepare("SELECT id,title,provider,updated_at FROM conversations WHERE project_id=? AND archived=0 ORDER BY updated_at DESC LIMIT 5").all(id),
+      recentDecisions: db.prepare("SELECT id,title,status FROM decisions WHERE project_id=? ORDER BY rowid DESC LIMIT 5").all(id),
+      tokens30d: db.prepare("SELECT provider, COUNT(*) requests, SUM(COALESCE(reported_in, input_chars/4)) tokensIn, SUM(COALESCE(reported_out, output_chars/4)) tokensOut FROM usage_events WHERE project_id=? AND ok=1 AND ts>=? GROUP BY provider ORDER BY requests DESC").all(id, since),
+    };
+  });
+
   app.get<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
     const p = getDb().prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     if (!p) return reply.status(404).send({ error: 'Not found' });

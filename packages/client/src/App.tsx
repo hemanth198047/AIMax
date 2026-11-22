@@ -10,6 +10,7 @@ import KnowledgePanel from './components/KnowledgePanel';
 import LinkVaultPanel from './components/LinkVaultPanel';
 import ImportPanel from './components/ImportPanel';
 import SettingsPanel from './components/SettingsPanel';
+import ProjectOverview from './components/ProjectOverview';
 import { useAppStore } from './stores/appStore';
 import { apiFetch } from './api/client';
 import type { Project, Person, Conversation } from './api/client';
@@ -22,6 +23,7 @@ function MainLayout() {
   const [showLinkVault, setShowLinkVault] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [overviewId, setOverviewId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -35,13 +37,14 @@ function MainLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-900 text-slate-100">
-      <Sidebar onShowKnowledge={() => setShowKnowledge(true)} onShowLinkVault={() => setShowLinkVault(true)} onShowImport={() => setShowImport(true)} onShowSettings={() => setShowSettings(true)} />
+      <Sidebar onShowKnowledge={() => setShowKnowledge(true)} onShowLinkVault={() => setShowLinkVault(true)} onShowImport={() => setShowImport(true)} onShowProject={setOverviewId} onShowSettings={() => setShowSettings(true)} />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <ChatView />
         <SandboxPanel />
       </main>
       <ContextPanel />
       {showKnowledge && <KnowledgePanel onClose={() => setShowKnowledge(false)} />}
+      {overviewId && <ProjectOverview projectId={overviewId} onClose={() => setOverviewId(null)} />}
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       {showImport && <ImportPanel onClose={() => setShowImport(false)} />}
       {showLinkVault && <LinkVaultPanel onClose={() => setShowLinkVault(false)} />}
