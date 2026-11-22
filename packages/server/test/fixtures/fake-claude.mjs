@@ -32,5 +32,5 @@ process.stdin.on('end', async () => {
     out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'world' } } });
   }
   out({ type: 'assistant', message: { content: [{ type: 'text', text: 'Hello world' }] }, session_id: sid });
-  out({ type: 'result', subtype: 'success', is_error: false, result: 'Hello world', session_id: sid });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'Hello world', session_id: sid, ...(mode === 'usage' ? { usage: { input_tokens: 1200, output_tokens: 300, cache_read_input_tokens: 5000 }, total_cost_usd: 0.0123 } : {}) });
 });

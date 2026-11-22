@@ -6,7 +6,9 @@ import { DATA_DIR } from '../db/index.js';
 import { killTree } from '../sandbox/runner.js';
 
 export interface ChatMessage { role: 'user' | 'assistant'; content: string }
-export interface ClaudeResult { text: string; sessionId: string | null; resumed: boolean }
+/** Token numbers the CLI itself reported in its final `result` event (shape taken from memory — UNVERIFIED against a real CLI). */
+export interface ReportedUsage { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; costUsd?: number }
+export interface ClaudeResult { text: string; sessionId: string | null; resumed: boolean; usage?: ReportedUsage }
 
 const IS_WIN = process.platform === 'win32';
 /** The chat assistant must never touch the host: every Claude Code tool is denied. */
@@ -38,7 +40,15 @@ function formatHistory(messages: ChatMessage[]): string {
   return `Previous conversation:\n${history.map(m => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`).join('\n\n')}\n\nHuman: ${last.content}`;
 }
 
-interface RunOutcome { text: string; sessionId: string | null; error?: string }
+interface RunOutcome { text: string; sessionId: string | null; error?: string; usage?: ReportedUsage }
+
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined);
+export function parseReportedUsage(ev: any): ReportedUsage | undefined {
+  const u = ev?.usage; const cost = typeof ev?.total_cost_usd === 'number' && ev.total_cost_usd >= 0 ? ev.total_cost_usd : undefined;
+  if (!u || typeof u !== 'object') return cost === undefined ? undefined : { costUsd: cost };
+  const r: ReportedUsage = { inputTokens: num(u.input_tokens), outputTokens: num(u.output_tokens), cacheReadTokens: num(u.cache_read_input_tokens), costUsd: cost };
+  return r.inputTokens === undefined && r.outputTokens === undefined && cost === undefined ? undefined : r;
+}
 
 function runOnce(prompt: string, system: string, sessionId: string | null, onChunk: (t: string) => void, signal?: AbortSignal, timeoutMs = 300_000): Promise<RunOutcome> {
   const runDir = join(DATA_DIR, 'claude-run'); const cwd = join(runDir, 'cwd');
@@ -50,11 +60,11 @@ function runOnce(prompt: string, system: string, sessionId: string | null, onChu
   return new Promise((resolve) => {
     let proc: ChildProcess;
     let settled = false; let buf = ''; let stderr = '';
-    let text = ''; let sawDelta = false; let session: string | null = sessionId; let final: string | null = null; let error: string | undefined;
+    let text = ''; let sawDelta = false; let session: string | null = sessionId; let final: string | null = null; let error: string | undefined; let usage: ReportedUsage | undefined;
     const finish = () => {
       if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', onAbort);
       killTree(proc?.pid); rmSync(systemFile, { force: true });
-      resolve({ text: final ?? text, sessionId: session, error });
+      resolve({ text: final ?? text, sessionId: session, error, usage });
     };
     const onAbort = () => { error = 'aborted'; killTree(proc?.pid); };
     const timer = setTimeout(() => { error = 'Claude CLI timed out'; killTree(proc?.pid); }, timeoutMs);
@@ -72,6 +82,7 @@ function runOnce(prompt: string, system: string, sessionId: string | null, onChu
       } else if (ev.type === 'assistant' && !sawDelta) {
         for (const c of ev.message?.content ?? []) if (c.type === 'text' && c.text) { text += c.text; onChunk(c.text); }
       } else if (ev.type === 'result') {
+        usage = parseReportedUsage(ev);
         if (ev.is_error || (ev.subtype && ev.subtype !== 'success')) error = String(ev.result ?? ev.subtype ?? 'Claude returned an error');
         else if (typeof ev.result === 'string') final = ev.result;
       }
@@ -100,14 +111,14 @@ export async function claudeChat(messages: ChatMessage[], system: string, onChun
 
   if (opts.sessionId) {
     const r = await runOnce(last.content, system, opts.sessionId, onChunk, opts.signal);
-    if (!r.error) return { text: r.text, sessionId: r.sessionId, resumed: true };
-    if (r.error === 'aborted') return { text: r.text, sessionId: r.sessionId, resumed: true };
+    if (!r.error) return { text: r.text, sessionId: r.sessionId, resumed: true, usage: r.usage };
+    if (r.error === 'aborted') return { text: r.text, sessionId: r.sessionId, resumed: true, usage: r.usage };
     if (r.text) throw new Error(r.error);                       // partial output already streamed: do not duplicate
     // fall through: session could not be resumed → fresh run with full history
   }
   const r = await runOnce(formatHistory(messages), system, null, onChunk, opts.signal);
   if (r.error && r.error !== 'aborted') throw new Error(r.error);
-  return { text: r.text, sessionId: r.sessionId, resumed: false };
+  return { text: r.text, sessionId: r.sessionId, resumed: false, usage: r.usage };
 }
 
 let cache: { at: number; ok: boolean; version: string } | null = null;

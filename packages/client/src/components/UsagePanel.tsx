@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../api/client';
+import UsageReport from './UsageReport';
 
 interface Row { provider: string; hour: number; day: number; limit: { per_hour?: number; per_day?: number } | null; paused: { until: string; reason: string } | null }
 interface Usage { providers: Row[]; note: string }
-interface Settings { limits: Record<string, { per_hour?: number; per_day?: number }>; ollama_model: string }
+type Lim = { per_hour?: number; per_day?: number; per_day_tokens?: number; per_month_tokens?: number };
+interface Settings { limits: Record<string, Lim>; ollama_model: string }
 
 const SHOWN = ['claude', 'ollama'];
 
@@ -12,6 +14,7 @@ export default function UsagePanel({ ollamaModels, ollamaSelected, onModelChange
   const [usage, setUsage] = useState<Usage | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [err, setErr] = useState('');
+  const [showReport, setShowReport] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([apiFetch<Usage>('/api/usage'), apiFetch<Settings>('/api/settings/providers')])
@@ -24,7 +27,7 @@ export default function UsagePanel({ ollamaModels, ollamaSelected, onModelChange
     try { setSettings(await apiFetch<Settings>('/api/settings/providers', { method: 'PUT', body: JSON.stringify(body) })); load(); onModelChange(); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   };
-  const setLimit = (prov: string, key: 'per_hour' | 'per_day', raw: string) => {
+  const setLimit = (prov: string, key: keyof Lim, raw: string) => {
     const limits = { ...(settings?.limits ?? {}) }; const cur = { ...(limits[prov] ?? {}) };
     if (raw.trim() === '') delete cur[key]; else cur[key] = Number(raw);
     limits[prov] = cur; void save({ limits });
@@ -41,6 +44,14 @@ export default function UsagePanel({ ollamaModels, ollamaSelected, onModelChange
             <div className="flex gap-1 mt-0.5">
               {(['per_hour', 'per_day'] as const).map(k => (
                 <input type="number" min={0} aria-label={`${p} ${k === 'per_hour' ? 'hourly' : 'daily'} limit`} placeholder={k === 'per_hour' ? 'max / hour' : 'max / day'}
+                  defaultValue={settings?.limits[p]?.[k] ?? ''} key={`${p}${k}${settings?.limits[p]?.[k] ?? ""}`}
+                  onBlur={e => { const cur = String(settings?.limits[p]?.[k] ?? ''); if (e.target.value !== cur) setLimit(p, k, e.target.value); }}
+                  className="w-1/2 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-300 placeholder-slate-600 focus:outline-none" />
+              ))}
+            </div>
+            <div className="flex gap-1 mt-0.5">
+              {([['per_day_tokens', 'tokens / 24 h'], ['per_month_tokens', 'tokens / 30 days']] as const).map(([k, ph]) => (
+                <input type="number" min={0} aria-label={`${p} ${k === 'per_day_tokens' ? 'daily' : 'monthly'} token budget`} placeholder={ph}
                   defaultValue={settings?.limits[p]?.[k] ?? ''} key={`${p}${k}${settings?.limits[p]?.[k] ?? ""}`}
                   onBlur={e => { const cur = String(settings?.limits[p]?.[k] ?? ''); if (e.target.value !== cur) setLimit(p, k, e.target.value); }}
                   className="w-1/2 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-300 placeholder-slate-600 focus:outline-none" />
@@ -63,6 +74,8 @@ export default function UsagePanel({ ollamaModels, ollamaSelected, onModelChange
           </select>
         </label>
       )}
+      <button onClick={() => setShowReport(true)} data-testid="open-usage-report" className="mt-1 text-[11px] text-indigo-400 hover:underline">Full token report…</button>
+      {showReport && <UsageReport onClose={() => setShowReport(false)} />}
       {err && <div className="text-[10px] text-red-400 mt-1">{err}</div>}
       <div className="text-[9px] text-slate-700 mt-1">{usage?.note ?? 'Counts only requests sent through AImax. When a limit is reached AImax stops calling that provider (auto falls back).'}</div>
     </div>

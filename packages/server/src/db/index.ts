@@ -323,6 +323,15 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
     if (!hasColumn(db, 'conversations', 'import_key')) db.exec("ALTER TABLE conversations ADD COLUMN import_key TEXT DEFAULT NULL");
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_import_key ON conversations(import_key) WHERE import_key IS NOT NULL');
   },
+  // v6: token numbers REPORTED by a provider CLI when it gives them (otherwise AImax only estimates from characters)
+  (db) => {
+    db.exec(`
+      ALTER TABLE usage_events ADD COLUMN reported_in INTEGER;
+      ALTER TABLE usage_events ADD COLUMN reported_out INTEGER;
+      ALTER TABLE usage_events ADD COLUMN reported_cache_read INTEGER;
+      ALTER TABLE usage_events ADD COLUMN reported_cost REAL;
+    `);
+  },
 ];
 
 function migrate(db: Database.Database) {

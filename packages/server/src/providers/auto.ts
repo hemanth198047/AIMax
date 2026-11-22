@@ -1,4 +1,4 @@
-import { claudeChat, checkClaudeAvailable, type ChatMessage } from './claude.js';
+import { claudeChat, checkClaudeAvailable, type ChatMessage, type ReportedUsage } from './claude.js';
 import { ollamaChat, checkOllamaAvailable, listOllamaModels } from './ollama.js';
 import { testChat, testProviderEnabled } from './test.js';
 import { budgetCheck, recordUsage, looksRateLimited, setCooldown, getSetting } from './usage.js';
@@ -17,12 +17,12 @@ export interface ChatOutcome { text: string; provider: string; model: string; cl
 
 const COOLDOWN_MINUTES = 60;
 
-async function tracked<T extends { text: string }>(provider: string, model: string, req: ChatRequest, run: () => Promise<T>): Promise<T> {
+async function tracked<T extends { text: string; usage?: ReportedUsage }>(provider: string, model: string, req: ChatRequest, run: () => Promise<T>): Promise<T> {
   const t0 = Date.now(); const inChars = req.system.length + req.messages.reduce((n, m) => n + m.content.length, 0);
   const base = { provider, model, conversationId: req.meta?.conversationId, projectId: req.meta?.projectId, inputChars: inChars };
   try {
     const r = await run();
-    recordUsage({ ...base, outputChars: r.text.length, durationMs: Date.now() - t0, ok: true });
+    recordUsage({ ...base, outputChars: r.text.length, durationMs: Date.now() - t0, ok: true, reported: r.usage });
     return r;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

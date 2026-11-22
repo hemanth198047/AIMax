@@ -11,7 +11,8 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db/index.js';
 
-export interface Limit { per_hour?: number; per_day?: number }
+/** Requests per hour/day, and TOKEN budgets over rolling 24 h / 30 days (tokens are reported by the CLI when available, otherwise estimated). */
+export interface Limit { per_hour?: number; per_day?: number; per_day_tokens?: number; per_month_tokens?: number }
 export type Limits = Record<string, Limit>;
 
 export function getSetting<T>(key: string, fallback: T): T {
@@ -30,11 +31,11 @@ export function sanitizeLimits(input: unknown): Limits {
   for (const [prov, l] of Object.entries(input as Record<string, unknown>)) {
     if (!/^[a-z0-9_-]{1,30}$/.test(prov) || !l || typeof l !== 'object') continue;
     const o: Limit = {};
-    for (const k of ['per_hour', 'per_day'] as const) {
+    for (const k of ['per_hour', 'per_day', 'per_day_tokens', 'per_month_tokens'] as const) {
       const v = (l as Record<string, unknown>)[k];
       if (v === null || v === undefined || v === '') continue;
       const n = Number(v);
-      if (!Number.isFinite(n) || n < 0 || n > 1_000_000) throw new Error(`${prov}.${k} must be a number between 0 and 1000000`);
+      if (!Number.isFinite(n) || n < 0 || n > (k.endsWith('tokens') ? 1_000_000_000 : 1_000_000)) throw new Error(`${prov}.${k} must be a number between 0 and ${k.endsWith('tokens') ? '1000000000' : '1000000'}`);
       o[k] = Math.floor(n);
     }
     if (Object.keys(o).length) out[prov] = o;
@@ -42,15 +43,21 @@ export function sanitizeLimits(input: unknown): Limits {
   return out;
 }
 
-export interface UsageEvent { provider: string; model?: string; conversationId?: string | null; projectId?: string | null; inputChars?: number; outputChars?: number; durationMs?: number; ok: boolean; error?: string }
+export interface UsageEvent { reported?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; costUsd?: number }; provider: string; model?: string; conversationId?: string | null; projectId?: string | null; inputChars?: number; outputChars?: number; durationMs?: number; ok: boolean; error?: string }
 export function recordUsage(e: UsageEvent, now = new Date()): void {
-  getDb().prepare('INSERT INTO usage_events(id,ts,provider,model,conversation_id,project_id,input_chars,output_chars,duration_ms,ok,error) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-    .run(randomUUID(), now.toISOString(), e.provider, e.model ?? '', e.conversationId ?? null, e.projectId ?? null, e.inputChars ?? 0, e.outputChars ?? 0, e.durationMs ?? 0, e.ok ? 1 : 0, (e.error ?? '').slice(0, 300));
+  getDb().prepare('INSERT INTO usage_events(id,ts,provider,model,conversation_id,project_id,input_chars,output_chars,duration_ms,ok,error,reported_in,reported_out,reported_cache_read,reported_cost) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(randomUUID(), now.toISOString(), e.provider, e.model ?? '', e.conversationId ?? null, e.projectId ?? null, e.inputChars ?? 0, e.outputChars ?? 0, e.durationMs ?? 0, e.ok ? 1 : 0, (e.error ?? '').slice(0, 300), e.reported?.inputTokens ?? null, e.reported?.outputTokens ?? null, e.reported?.cacheReadTokens ?? null, e.reported?.costUsd ?? null);
 }
 
 export function usageCounts(provider: string, now = new Date()): { hour: number; day: number } {
   const q = (ms: number) => (getDb().prepare('SELECT COUNT(*) n FROM usage_events WHERE provider=? AND ts>=?').get(provider, new Date(now.getTime() - ms).toISOString()) as { n: number }).n;
   return { hour: q(3600_000), day: q(86_400_000) };
+}
+
+/** SQL for one event's tokens: what the CLI reported (input+output) if it did, otherwise ~4 characters per token. An ESTIMATE. */
+export const TOKENS_SQL = `(CASE WHEN reported_in IS NOT NULL OR reported_out IS NOT NULL THEN COALESCE(reported_in,0)+COALESCE(reported_out,0) ELSE (input_chars+output_chars+3)/4 END)`;
+export function tokensSince(provider: string, ms: number, now = new Date()): number {
+  return (getDb().prepare(`SELECT COALESCE(SUM(${TOKENS_SQL}),0) n FROM usage_events WHERE provider=? AND ts>=?`).get(provider, new Date(now.getTime() - ms).toISOString()) as { n: number }).n;
 }
 
 export function looksRateLimited(msg: string): boolean {
@@ -73,5 +80,7 @@ export function budgetCheck(provider: string, now = new Date()): { ok: true } | 
   const used = usageCounts(provider, now);
   if (lim.per_hour !== undefined && used.hour >= lim.per_hour) return { ok: false, reason: `${provider} hourly limit reached (${used.hour}/${lim.per_hour}) — set in AImax` };
   if (lim.per_day !== undefined && used.day >= lim.per_day) return { ok: false, reason: `${provider} daily limit reached (${used.day}/${lim.per_day}) — set in AImax` };
+  if (lim.per_day_tokens !== undefined) { const t = tokensSince(provider, 86_400_000, now); if (t >= lim.per_day_tokens) return { ok: false, reason: `${provider} 24-hour token budget reached (~${t}/${lim.per_day_tokens}) — set in AImax` }; }
+  if (lim.per_month_tokens !== undefined) { const t = tokensSince(provider, 30 * 86_400_000, now); if (t >= lim.per_month_tokens) return { ok: false, reason: `${provider} 30-day token budget reached (~${t}/${lim.per_month_tokens}) — set in AImax` }; }
   return { ok: true };
 }

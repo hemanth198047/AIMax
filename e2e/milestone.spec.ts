@@ -393,3 +393,33 @@ test('import an earlier chat from an exported file, mask a secret, open it and c
   await expect(page.getByTestId('import-list')).toContainText('already imported');
   await expect(page.getByTestId('import-item-check')).toBeDisabled();
 });
+
+test('token report: used/remaining against a budget you set, enforced before the next call', async ({ page }) => {
+  test.skip(process.platform === 'win32', 'uses the fake claude CLI (POSIX only)');
+  const chat = async (message: string) => (await page.request.post('/api/chat', { data: { message, provider: 'claude', scope: 'global' } })).text();
+  const claudeReqs = async () => ((await (await page.request.get('/api/usage/report')).json()).providers.find((p: any) => p.provider === 'claude')?.requests ?? 0) as number;
+  const base = await claudeReqs();
+  await page.goto('/');
+  const budget = page.getByLabel('claude daily token budget');
+  await budget.fill('100000'); await budget.blur();
+  await expect.poll(async () => (await (await page.request.get('/api/settings/providers')).json()).limits.claude?.per_day_tokens).toBe(100000);
+  expect(await chat('a first real-provider request for the report')).toContain('event: done');
+
+  await page.getByTestId('open-usage-report').click();
+  const card = page.getByTestId('report-provider-claude');
+  expect(await claudeReqs()).toBe(base + 1);
+  await expect(card).toContainText(`${base + 1} requests`);
+  await expect(card).toContainText('remaining');
+  await expect(page.getByTestId('bar24-claude')).toBeVisible();
+  await expect(page.getByTestId('report-note')).toContainText('cannot see your real plan quota');
+  await shot(page, '10-usage-report');
+  await page.getByRole('button', { name: 'Close report' }).click();
+
+  // a tiny budget is already exceeded → the next request is refused before the provider is called
+  const small = page.getByLabel('claude daily token budget');
+  await small.fill('10'); await small.blur();
+  await expect.poll(async () => (await (await page.request.get('/api/settings/providers')).json()).limits.claude?.per_day_tokens).toBe(10);
+  expect(await chat('this one must be refused')).toMatch(/token budget reached/);
+  await page.getByTestId('open-usage-report').click();
+  await expect(page.getByTestId('report-tips')).toContainText('of your 24-hour token budget used');
+});
