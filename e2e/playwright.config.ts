@@ -12,6 +12,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5173',
     viewport: { width: 1440, height: 900 },
+    permissions: ['clipboard-read', 'clipboard-write'],
     launchOptions: { executablePath, args: ['--no-sandbox'] },
     trace: 'retain-on-failure',
   },

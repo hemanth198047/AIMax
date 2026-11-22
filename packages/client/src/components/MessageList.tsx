@@ -6,6 +6,7 @@ import type { Message } from '../api/client';
 import RunProposal from './RunProposal';
 import EditProposal from './EditProposal';
 import clsx from 'clsx';
+import CopyButton from './CopyButton';
 
 interface Props {
   messages: Message[];
@@ -22,7 +23,7 @@ export default function MessageList({ messages, streaming, streamingText }: Prop
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-5">
-      {messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
+      {messages.map((msg, i) => <MessageBubble key={msg.id} message={msg} isLast={i === messages.length - 1 && !streaming} />)}
       {streaming && (
         <div className="flex gap-3">
           <div className="w-7 h-7 bg-indigo-600 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -48,7 +49,7 @@ export default function MessageList({ messages, streaming, streamingText }: Prop
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, isLast }: { message: Message; isLast: boolean }) {
   const isUser = message.role === 'user';
   return (
     <div className={clsx('flex gap-3', isUser && 'flex-row-reverse')} data-testid={`msg-${message.role}`}>
@@ -58,20 +59,26 @@ function MessageBubble({ message }: { message: Message }) {
       )}>
         {isUser ? <User size={13} /> : <Bot size={13} />}
       </div>
-      <div className={clsx(
-        'max-w-[85%] rounded-2xl px-4 py-3 text-sm',
-        isUser
-          ? 'bg-indigo-600 text-white rounded-tr-none'
-          : 'bg-slate-800/60 text-slate-200 rounded-tl-none border border-slate-700/50'
-      )}>
-        {isUser && <AttachmentChips raw={message.attachments} />}
-        {isUser
-          ? <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-          : <MarkdownContent content={message.content} />
-        }
-        {message.provider && message.provider !== 'error' && (
-          <div className="text-[10px] opacity-40 mt-1.5">{message.provider}{message.model ? ` · ${message.model}` : ''}</div>
-        )}
+      <div className={clsx('group flex flex-col max-w-[85%] min-w-0', isUser ? 'items-end' : 'items-start')}>
+        <div className={clsx(
+          'rounded-2xl px-4 py-3 text-sm max-w-full',
+          isUser
+            ? 'bg-indigo-600 text-white rounded-tr-none'
+            : 'bg-slate-800/60 text-slate-200 rounded-tl-none border border-slate-700/50'
+        )}>
+          {isUser && <AttachmentChips raw={message.attachments} />}
+          {isUser
+            ? <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+            : <MarkdownContent content={message.content} />
+          }
+          {message.provider && message.provider !== 'error' && (
+            <div className="text-[10px] opacity-40 mt-1.5">{message.provider}{message.model ? ` · ${message.model}` : ''}</div>
+          )}
+        </div>
+        {/* Copies the message's own text (Markdown source for answers), like the Claude app. Shown on hover/focus, always on the newest message. */}
+        <div className={clsx('mt-1 px-1 transition-opacity focus-within:opacity-100', isLast ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}>
+          <CopyButton getText={() => message.content} label="Copy message" testId="copy-message" className="p-1 hover:bg-slate-800" />
+        </div>
       </div>
     </div>
   );
@@ -100,10 +107,16 @@ function MarkdownContent({ content }: { content: string }) {
           if (!className) {
             return <code className="bg-slate-700/60 px-1.5 py-0.5 rounded text-xs font-mono text-indigo-300">{children}</code>;
           }
+          const code = String(children).replace(/\n$/, '');
+          const lang = (className ?? '').replace(/^language-/, '');
           return (
-            <pre className="bg-slate-900 border border-slate-700 rounded-lg p-3 overflow-x-auto my-2">
-              <code className="text-xs font-mono text-slate-300 leading-relaxed">{children}</code>
-            </pre>
+            <div className="my-2 rounded-lg border border-slate-700 bg-slate-900 overflow-hidden" data-testid="code-block">
+              <div className="flex items-center justify-between px-3 py-1 bg-slate-800/70 border-b border-slate-700">
+                <span className="text-[11px] text-slate-400 font-mono">{lang}</span>
+                <CopyButton getText={() => code} label="Copy" variant="text" testId="copy-code" className="px-1.5 py-0.5 hover:bg-slate-700" />
+              </div>
+              <pre className="p-3 overflow-x-auto"><code className="text-xs font-mono text-slate-300 leading-relaxed">{children}</code></pre>
+            </div>
           );
         },
         p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,

@@ -23,6 +23,7 @@ export async function testChat(messages: ChatMessage[], system: string, onChunk:
     `edit-protocol: ${system.includes('aimax-edit') ? 'yes' : 'no'}`,
     ...(last.includes('[test:edit]') ? ['I propose this change:', '```aimax-edit\nFILE: docs/hello.txt\n<<<<<<< SEARCH\n=======\nhello from an edit proposal\n>>>>>>> REPLACE\n```'] : []),
     ...(last.includes('[test:edit2]') ? ['And this one:', '```aimax-edit\nFILE: docs/hello.txt\n<<<<<<< SEARCH\nhello from an edit proposal\n=======\ngoodbye from an edit proposal\n>>>>>>> REPLACE\n```'] : []),
+    ...(last.includes('[test:code]') ? ['Here is some code:', '```python\nprint("hi")\nfor i in range(2):\n    print(i)\n```', 'And **bold** text.'] : []),
     ...(last.includes('[test:propose]') ? ['I suggest running this in your sandbox:', '```aimax-run\necho proposed-ok; echo done-from-proposal\n```'] : []),
   ].join('\n\n');
   const slow = last.includes('[test:slow]');

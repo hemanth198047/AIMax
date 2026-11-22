@@ -443,3 +443,35 @@ test('settings opens; accounts show real CLI state; sign-in opens a terminal wit
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expect(page.getByTestId('settings-panel')).toHaveCount(0);
 });
+
+test('copy: message copy buttons and code-block copy put the exact text on the clipboard, with "Copied" feedback', async ({ page }) => {
+  await page.goto('/');
+  await sidebarTab(page, 'Chats').click();
+  await page.getByRole('button', { name: /New Conversation/ }).first().click();
+  await page.getByRole('button', { name: /^Test/ }).click();
+  const clip = () => page.evaluate(() => navigator.clipboard.readText());
+  await askAndRead(page, 'please show code [test:code]');
+
+  // answer: raw Markdown source (fences and **bold** markers intact), not the rendered text
+  const answer = page.getByTestId('msg-assistant').last();
+  await answer.hover();
+  const copyAnswer = answer.getByTestId('copy-message');
+  await copyAnswer.click();
+  await expect(copyAnswer).toHaveAttribute('data-state', 'copied');
+  const md = await clip();
+  expect(md).toContain('```python\nprint("hi")\nfor i in range(2):\n    print(i)\n```'); expect(md).toContain('And **bold** text.');
+  await expect(copyAnswer).toHaveAttribute('data-state', 'idle', { timeout: 4000 });          // feedback resets
+
+  // code block: only the code, indentation kept, no fences
+  const block = answer.getByTestId('code-block');
+  await expect(block).toContainText('python');
+  await block.getByTestId('copy-code').click();
+  await expect(block.getByTestId('copy-code')).toContainText('Copied');
+  expect(await clip()).toBe('print("hi")\nfor i in range(2):\n    print(i)');
+
+  // user message: the text as typed
+  const mine = page.getByTestId('msg-user').last();
+  await mine.hover(); await mine.getByTestId('copy-message').click();
+  expect(await clip()).toBe('please show code [test:code]');
+  await shot(page, '12-copy');
+});
