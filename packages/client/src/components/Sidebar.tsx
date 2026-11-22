@@ -12,9 +12,10 @@ interface SidebarProps {
   onShowKnowledge: () => void;
   onShowLinkVault: () => void;
   onShowImport: () => void;
+  onShowSettings: () => void;
 }
 
-export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport }: SidebarProps) {
+export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport, onShowSettings }: SidebarProps) {
   const {
     sidebarSection, setSidebarSection, conversations, projects, people,
     activeConversationId, setActiveConversation, setConversations,
@@ -247,7 +248,7 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport
           className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-indigo-400 rounded-lg transition-colors">
           <Download size={11} /> Import chats
         </button>
-        <button className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-slate-400 rounded-lg transition-colors">
+        <button onClick={onShowSettings} data-testid="open-settings" className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-indigo-400 rounded-lg transition-colors">
           <Settings size={11} /> Settings
         </button>
       </div>

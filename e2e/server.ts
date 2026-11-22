@@ -11,6 +11,7 @@ export async function startServer(dataDir: string) {
     cwd: ROOT, shell: process.platform === 'win32',
     env: { ...process.env, PORT: '3001', AIMAX_DATA_DIR: dataDir, AIMAX_TEST_PROVIDER: '1',
       // A fake `claude` CLI (POSIX only) so the agent flow can be driven end to end without a real Claude.
+      AIMAX_TERMINAL_LOG: join(dataDir, 'terminal.log'),      // sign-in test: record the command instead of opening a real window
       ...(process.platform === 'win32' ? {} : { AIMAX_CLAUDE_BIN: join(ROOT, 'packages/server/test/fixtures/fake-claude.mjs'), FAKE_CLAUDE_MODE: 'agent', FAKE_CLAUDE_LOG: join(dataDir, 'fake-claude.log') }) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -9,7 +9,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DATA_DIR } from '../db/index.js';
-import { checkClaudeAvailable, resolveClaudeBin } from '../providers/claude.js';
+import { checkClaudeAvailable, claudeChildEnv, resolveClaudeBin } from '../providers/claude.js';
 import { killTree } from '../sandbox/runner.js';
 import type { AgentAdapter, AgentResult, AgentRunOptions } from './types.js';
 
@@ -54,7 +54,7 @@ export const claudeAgent: AgentAdapter = {
       const onAbort = () => { error = 'aborted'; killTree(proc?.pid); };
       const timer = setTimeout(() => { error = 'Agent timed out'; killTree(proc?.pid); }, opts.timeoutMs ?? 15 * 60_000);
       try {
-        proc = spawn(file, buildAgentArgs(systemFile), { cwd: opts.cwd, shell, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: !IS_WIN, env: { ...process.env, TERM: 'dumb' } });
+        proc = spawn(file, buildAgentArgs(systemFile), { cwd: opts.cwd, shell, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: !IS_WIN, env: claudeChildEnv() });
       } catch (e) { error = `Failed to spawn claude: ${e instanceof Error ? e.message : e}`; return finish(); }
       if (opts.signal?.aborted) onAbort(); else opts.signal?.addEventListener('abort', onAbort);
 

@@ -423,3 +423,22 @@ test('token report: used/remaining against a budget you set, enforced before the
   await page.getByTestId('open-usage-report').click();
   await expect(page.getByTestId('report-tips')).toContainText('of your 24-hour token budget used');
 });
+
+test('settings opens; accounts show real CLI state; sign-in opens a terminal with the CLI\'s own command (no API key)', async ({ page }) => {
+  test.skip(process.platform === 'win32', 'uses the fake claude CLI (POSIX only)');
+  await page.goto('/');
+  await page.getByTestId('open-settings').click();
+  await expect(page.getByTestId('settings-panel')).toBeVisible();
+  const claude = page.getByTestId('account-claude');
+  await expect(claude).toContainText('Claude Code CLI');                                     // blurb: subscription login, no API key
+  await expect(page.getByTestId('account-claude-state')).toHaveText('Signed in');
+  await expect(page.getByTestId('account-cursor-state')).toHaveText('Not installed');
+  await expect(page.getByTestId('account-openai')).toContainText('npm install -g @openai/codex');
+  await expect(page.getByTestId('account-cursor')).not.toContainText('Sign in');
+  await shot(page, '11-settings');
+  await page.getByTestId('signin-claude').click();
+  await expect(page.getByTestId('opened-claude')).toContainText('auth login');
+  await expect.poll(() => existsSync(join(dataDir, 'terminal.log')) && readFileSync(join(dataDir, 'terminal.log'), 'utf8')).toMatch(/fake-claude\.mjs auth login/);
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+});

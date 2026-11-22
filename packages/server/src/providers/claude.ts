@@ -12,6 +12,13 @@ export interface ClaudeResult { text: string; sessionId: string | null; resumed:
 
 const IS_WIN = process.platform === 'win32';
 /** The chat assistant must never touch the host: every Claude Code tool is denied. */
+/** Environment for a Claude CLI child. An API key in the environment makes Claude Code bill the API instead of the user's subscription, so it is
+ *  removed (zero-overage / "no API keys"). Opt out with AIMAX_ALLOW_API_KEY=1. */
+export function claudeChildEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'dumb' };
+  if (process.env.AIMAX_ALLOW_API_KEY !== '1') { delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN; }
+  return env;
+}
 export const DENIED_TOOLS = 'Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task,Read,Glob,Grep,TodoWrite,Agent';
 
 export function resolveClaudeBin(): { file: string; shell: boolean } {
@@ -70,7 +77,7 @@ function runOnce(prompt: string, system: string, sessionId: string | null, onChu
     const timer = setTimeout(() => { error = 'Claude CLI timed out'; killTree(proc?.pid); }, timeoutMs);
     try {
       proc = spawn(file, buildClaudeArgs({ systemFile, sessionId }), { cwd, shell, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: !IS_WIN,
-        env: { ...process.env, TERM: 'dumb' } });
+        env: claudeChildEnv() });
     } catch (e) { error = `Failed to spawn claude: ${e instanceof Error ? e.message : e}`; return finish(); }
     if (signal?.aborted) onAbort(); else signal?.addEventListener('abort', onAbort);
 
