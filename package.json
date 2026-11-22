@@ -6,11 +6,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace=packages/server\" \"npm run dev --workspace=packages/client\"",
+    "dev": "concurrently -n server,client -c cyan,magenta --kill-others-on-fail \"npm run dev --workspace=packages/server\" \"npm run dev --workspace=packages/client\"",
     "build": "npm run build --workspace=packages/server && npm run build --workspace=packages/client",
     "start": "npm run start --workspace=packages/server",
     "test": "npm test --workspace=packages/server",
-    "test:e2e": "playwright test --config e2e/playwright.config.ts"
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "aimax": "node scripts/aimax-start.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",

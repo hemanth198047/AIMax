@@ -4,7 +4,10 @@ Private, local-first AI workspace (projects, people, scoped memory, guarded sand
 ## Run
 ```
 npm install
-npm run dev            # server :3001 + client :5173
+./aimax.ps1            # Windows: checks/repairs packages, starts Ollama if installed, starts server + UI, opens the browser
+                       #   options: -Force (free busy ports)  -Reinstall (clean node_modules)  -NoOpen  -NoOllama  -Check
+npm run aimax          # same, any OS:  node scripts/aimax-start.mjs [--force --reinstall --no-open --no-ollama --check]
+npm run dev            # bare server :3001 + client :5173, no checks
 ```
 
 ## Test
