@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { checkClaudeAvailable, claudeVersion } from '../providers/claude.js';
 import { testProviderEnabled } from '../providers/test.js';
+import { freeAvailable } from '../providers/freellmapi.js';
 import { codexAvailable } from '../providers/codex.js';
 import { cursorAvailable } from '../providers/cursor.js';
 import { checkOllamaAvailable, listOllamaModels } from '../providers/ollama.js';
@@ -29,7 +30,7 @@ export async function providersRoutes(app: FastifyInstance) {
       // No adapter exists for these: they are never "available", whatever is installed.
       cursor: { available: cursorAvailable(), detected: cursorAvailable(), interface: 'cursor-cli', note: 'Experimental: built from Cursor docs, not yet verified against your CLI. Used only when you select it.' },
       codex: { available: codexAvailable(), detected: codexAvailable(), interface: 'codex-cli', note: 'Experimental: built from OpenAI docs, not yet verified against your CLI. Used only when you select it.' },
-      freellmapi: { available: false, interface: 'electron-app', note: 'No AImax adapter yet' },
+      freellmapi: { available: await freeAvailable(), interface: 'openai-compatible-http', note: 'Experimental: built from the project docs, not yet verified against your server. Used only when you select it.' },
       ...(testProviderEnabled() ? { test: { available: true, interface: 'deterministic (tests only)' } } : {}),
     };
   });

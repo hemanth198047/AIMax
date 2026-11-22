@@ -1,5 +1,6 @@
 import { claudeChat, checkClaudeAvailable, type ChatMessage, type ReportedUsage } from './claude.js';
 import { codexChat, codexAvailable } from './codex.js';
+import { freeChat, freeAvailable } from './freellmapi.js';
 import { cursorChat, cursorAvailable } from './cursor.js';
 import { ollamaChat, checkOllamaAvailable, listOllamaModels } from './ollama.js';
 import { testChat, testProviderEnabled } from './test.js';
@@ -61,6 +62,13 @@ export async function autoChat(req: ChatRequest, onChunk: (text: string) => void
     const b = budgetCheck('cursor'); if (!b.ok) throw new Error(`${b.reason}. AImax will not call it again until then (zero-overage guard).`);
     const r = await tracked('cursor', 'cursor-agent', req, () => cursorChat(messages, system, onChunk, { signal }));
     return { text: r.text, provider: 'cursor', model: 'cursor-agent' };
+  }
+
+  if (preferred === 'freellmapi') {
+    if (!(await freeAvailable())) throw new Error('FreeLLMAPI is not reachable or the key is wrong. Start it and check Settings → Local connections.');
+    const b = budgetCheck('freellmapi'); if (!b.ok) throw new Error(`${b.reason}. AImax will not call it again until then (zero-overage guard).`);
+    const r = await tracked('freellmapi', 'freellmapi', req, () => freeChat(messages, system, onChunk, { signal }));
+    return { text: r.text, provider: 'freellmapi', model: r.model };
   }
 
   if (preferred === 'codex') {

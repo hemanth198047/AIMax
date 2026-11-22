@@ -97,7 +97,28 @@ function MethodBox({ a }: { a: Account }) {
   );
 }
 
-interface Conn { ollama: { running: boolean; url: string; models: string[]; selected: string; successfulChats: number; lastUsed: string | null; note: string }; linkvault: { found: boolean; path: string; links: number | null; error: string; usedByChat: boolean; note: string } }
+interface Conn { freellmapi: { url: string; model: string; keySet: boolean; reachable: boolean; models: string[]; error: string; note: string }; ollama: { running: boolean; url: string; models: string[]; selected: string; successfulChats: number; lastUsed: string | null; note: string }; linkvault: { found: boolean; path: string; links: number | null; error: string; usedByChat: boolean; note: string } }
+function FreeCard({ f, reload, setErr }: { f: Conn['freellmapi']; reload: () => Promise<void>; setErr: (s: string) => void }) {
+  const [url, setUrl] = useState(f.url); const [key, setKey] = useState(''); const [model, setModel] = useState(f.model);
+  const save = async () => {
+    setErr('');
+    try { await apiFetch('/api/connections/freellmapi', { method: 'PUT', headers: { 'X-AImax-UI': '1' }, body: JSON.stringify({ url, model, ...(key ? { key } : {}) }) }); setKey(''); await reload(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
+  const inp = 'w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200';
+  return (
+    <div className="border border-slate-800 rounded-lg p-3 space-y-2" data-testid="conn-freellmapi">
+      <div><Dot ok={f.reachable && !f.error && f.keySet} /><b className="text-slate-200">FreeLLMAPI</b> <span className="text-slate-600">· self-hosted free-tier gateway</span></div>
+      <div className="text-slate-400">{f.note}</div>
+      <div className="grid grid-cols-[5rem_1fr] gap-2 items-center">
+        <label htmlFor="fl-url">Base URL</label><input id="fl-url" className={inp} value={url} onChange={(e) => setUrl(e.target.value)} />
+        <label htmlFor="fl-key">Unified key</label><input id="fl-key" type="password" autoComplete="off" className={inp} value={key} placeholder={f.keySet ? 'saved (type to replace)' : 'freellmapi-…'} onChange={(e) => setKey(e.target.value)} />
+        <label htmlFor="fl-model">Model</label><input id="fl-model" className={inp} value={model} list="fl-models" onChange={(e) => setModel(e.target.value)} /><datalist id="fl-models">{['auto', ...f.models].map((m) => <option key={m} value={m} />)}</datalist>
+      </div>
+      <div className="flex items-center gap-2"><button onClick={() => void save()} data-testid="fl-save" className="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-500">Save</button>
+        <span className="text-slate-500">The key is stored on this computer only and never shown again. It is FreeLLMAPI's own key from its dashboard, not a vendor API key. Free tiers behind it may log prompts, so it is used only when you pick it.</span></div>
+    </div>
+  );
+}
 function Dot({ ok }: { ok: boolean }) { return <span className={`inline-block w-2 h-2 rounded-full mr-1 ${ok ? 'bg-emerald-400' : 'bg-red-400'}`} />; }
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
@@ -146,6 +167,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           <section className="space-y-2" data-testid="connections">
             <h3 className="text-[10px] uppercase tracking-wider text-slate-500">Local connections</h3>
             {!conn ? <div className="text-slate-500">Checking…</div> : <>
+              <FreeCard f={conn.freellmapi} reload={async () => setConn(await apiFetch<Conn>('/api/connections'))} setErr={setErr} />
               <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-ollama">
                 <div><Dot ok={conn.ollama.running} /><b className="text-slate-200">Ollama</b> <span className="text-slate-600">· {conn.ollama.url}</span></div>
                 <div className="text-slate-400">{conn.ollama.note}</div>

@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
 import { checkOllamaAvailable, listOllamaModels } from '../providers/ollama.js';
 import { getSetting, setSetting } from '../providers/usage.js';
+import { freeConfig, freeProbe, saveFreeConfig } from '../providers/freellmapi.js';
 import { linkVaultInChat } from '../linkvault/search.js';
 import { linkVaultPath } from './linkvault.js';
 
@@ -16,13 +17,21 @@ export async function accountsRoutes(app: FastifyInstance) {
     if (typeof req.body?.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled must be true or false' });
     setSetting('linkvault_in_chat', req.body.enabled); return { enabled: req.body.enabled };
   });
+  app.put<{ Body: { url?: unknown; key?: unknown; model?: unknown } }>('/api/connections/freellmapi', async (req, reply) => {
+    if (req.headers['x-aimax-ui'] !== '1') return reply.status(403).send({ error: 'Must be changed from the AImax UI' });
+    try { saveFreeConfig(req.body ?? {}); } catch (e) { return reply.status(400).send({ error: e instanceof Error ? e.message : String(e) }); }
+    return { ok: true };
+  });
   /** Ollama and LinkVault: are they reachable, and does AImax actually use them? */
   app.get('/api/connections', async () => {
     const up = await checkOllamaAvailable(); const models = up ? await listOllamaModels() : []; const chosen = getSetting<string>('ollama_model', '');
     const n = (getDb().prepare("SELECT COUNT(*) n, MAX(ts) last FROM usage_events WHERE provider='ollama' AND ok=1").get() as { n: number; last: string | null });
     const lvPath = linkVaultPath(); let lv: { found: boolean; path: string; links: number | null; error: string } = { found: existsSync(lvPath), path: lvPath, links: null, error: '' };
     if (lv.found) { try { const d = new Database(lvPath, { readonly: true }); try { lv.links = (d.prepare('SELECT COUNT(*) n FROM links').get() as { n: number }).n; } finally { d.close(); } } catch (e) { lv.error = e instanceof Error ? e.message : String(e); } }
+    const fc = freeConfig(); const fp = await freeProbe();
     return {
+      freellmapi: { url: fc.url, model: fc.model, keySet: !!fc.key, reachable: fp.reachable, models: fp.models, error: fp.error,
+        note: !fp.reachable ? `Not reachable at ${fc.url}. Start FreeLLMAPI (default http://localhost:3001) or fix the URL.` : fp.error ? fp.error : fc.key ? 'Connected. Select "FreeLLMAPI" under Provider to chat (never used automatically).' : 'Reachable, but no unified key saved yet.' },
       ollama: { running: up, url: process.env.OLLAMA_HOST || 'http://localhost:11434', models: models.map(m => m.name), selected: models.some(m => m.name === chosen) ? chosen : (models[0]?.name ?? ''), successfulChats: n.n, lastUsed: n.last,
         note: up ? (n.n ? 'Connected and used for chats.' : 'Connected, but no chat has used it yet — pick Ollama in the model picker.') : 'Not reachable. Start it with "ollama serve" (AImax starts it for you when launched with aimax.ps1).' },
       linkvault: { ...lv, usedByChat: linkVaultInChat(), note: lv.found && !lv.error ? (linkVaultInChat() ? 'Connected (read-only). Chats search it and include up to 4 matching saved links.' : 'Connected (read-only). Chats do not use it unless you turn it on below.') : lv.found ? 'File found but unreadable.' : 'Database file not found. Set AIMAX_LINKVAULT_DB to its full path and restart.' },
