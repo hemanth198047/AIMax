@@ -30,7 +30,7 @@ test('accounts: Claude is detected, signed-in state comes from the CLI itself; m
   process.env.FAKE_CLAUDE_AUTH = 'out'; c = acc(await accounts(), 'claude'); assert.equal(c.signedIn, false); assert.match(c.statusText, /Not logged in/);
   process.env.FAKE_CLAUDE_AUTH = 'none'; c = acc(await accounts(), 'claude');
   assert.deepEqual([c.installed, c.loginSupported, c.signedIn], [true, false, null]); assert.match(c.hint, /\/login/); assert.equal(c.loginCommand, 'claude');
-  for (const id of ['cursor', 'openai']) { const a = acc(b, id); assert.deepEqual([a.installed, a.signedIn, a.adapter], [false, null, 'not-built']); assert.match(a.hint, /Install/); }
+  for (const id of ['cursor', 'openai']) { const a = acc(b, id); assert.deepEqual([a.installed, a.signedIn, a.adapter], [false, null, a.id === 'cursor' ? 'ready' : 'not-built']); assert.match(a.hint, /Install/); }
   delete process.env.FAKE_CLAUDE_AUTH;
 });
 

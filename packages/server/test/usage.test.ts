@@ -96,7 +96,7 @@ test('status reports the real CLI version, and never claims adapters that do not
   reset(); process.env.FAKE_CLAUDE_MODE = 'ok';
   const st = (await app.inject({ url: '/api/providers/status' })).json();
   assert.equal(st.claude.version, '0.0.0-fake');
-  for (const k of ['cursor', 'codex', 'freellmapi']) { assert.equal(st[k].available, false, k); assert.match(st[k].note, /No AImax adapter/); }
+  for (const k of ['cursor', 'codex', 'freellmapi']) { assert.equal(st[k].available, false, k); assert.match(st[k].note, k === 'cursor' ? /Experimental/ : /No AImax adapter/); }
 });
 
 test('time windows: only the last hour/day count', () => {

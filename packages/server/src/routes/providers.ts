@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { checkClaudeAvailable, claudeVersion } from '../providers/claude.js';
 import { testProviderEnabled } from '../providers/test.js';
+import { cursorAvailable } from '../providers/cursor.js';
 import { checkOllamaAvailable, listOllamaModels } from '../providers/ollama.js';
 import { getDb } from '../db/index.js';
 import { buildReport } from '../providers/report.js';
@@ -25,7 +26,7 @@ export async function providersRoutes(app: FastifyInstance) {
       claude: { available: claudeOk, interface: 'claude-code-cli', version: claudeOk ? await claudeVersion() : '', paused: activeCooldown('claude') },
       ollama: { available: ollamaOk, interface: 'http-api', models: ollamaModels.map(m => m.name), selected: ollamaModels.some(m => m.name === chosen) ? chosen : (ollamaModels[0]?.name ?? ''), paused: activeCooldown('ollama') },
       // No adapter exists for these: they are never "available", whatever is installed.
-      cursor: { available: false, detected: onPath('cursor-agent') || onPath('cursor'), interface: 'cursor-cli', note: 'No AImax adapter yet' },
+      cursor: { available: cursorAvailable(), detected: cursorAvailable(), interface: 'cursor-cli', note: 'Experimental: built from Cursor docs, not yet verified against your CLI. Used only when you select it.' },
       codex: { available: false, detected: onPath('codex'), interface: 'codex-cli', note: 'No AImax adapter yet' },
       freellmapi: { available: false, interface: 'electron-app', note: 'No AImax adapter yet' },
       ...(testProviderEnabled() ? { test: { available: true, interface: 'deterministic (tests only)' } } : {}),

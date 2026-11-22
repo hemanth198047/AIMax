@@ -7,7 +7,7 @@ interface Usage { providers: Row[]; note: string }
 type Lim = { per_hour?: number; per_day?: number; per_day_tokens?: number; per_month_tokens?: number };
 interface Settings { limits: Record<string, Lim>; ollama_model: string }
 
-const SHOWN = ['claude', 'ollama'];
+const SHOWN = ['claude', 'ollama', 'cursor'];
 
 /** Local usage ledger + soft limits. Counts only what AImax sent; it cannot see the real plan quota. */
 export default function UsagePanel({ ollamaModels, ollamaSelected, onModelChange }: { ollamaModels: string[]; ollamaSelected: string; onModelChange: () => void }) {

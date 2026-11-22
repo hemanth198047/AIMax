@@ -1,4 +1,5 @@
 import { claudeChat, checkClaudeAvailable, type ChatMessage, type ReportedUsage } from './claude.js';
+import { cursorChat, cursorAvailable } from './cursor.js';
 import { ollamaChat, checkOllamaAvailable, listOllamaModels } from './ollama.js';
 import { testChat, testProviderEnabled } from './test.js';
 import { budgetCheck, recordUsage, looksRateLimited, setCooldown, getSetting } from './usage.js';
@@ -51,6 +52,14 @@ export async function autoChat(req: ChatRequest, onChunk: (text: string) => void
       if (preferred === 'claude') throw new Error(`${b.reason}. AImax will not call it again until then (zero-overage guard).`);
       req.onRoute?.(`${b.reason} — routing to another provider`);
     } else if (preferred === 'claude') throw new Error('Claude Code CLI is not available. Ensure `claude` is in your PATH (or set AIMAX_CLAUDE_BIN).');
+  }
+
+  // Cursor is only used when you pick it explicitly (never as an automatic fallback), so it cannot consume your Cursor plan unasked.
+  if (preferred === 'cursor') {
+    if (!cursorAvailable()) throw new Error('Cursor CLI is not installed. Open Settings → Cursor for the installer.');
+    const b = budgetCheck('cursor'); if (!b.ok) throw new Error(`${b.reason}. AImax will not call it again until then (zero-overage guard).`);
+    const r = await tracked('cursor', 'cursor-agent', req, () => cursorChat(messages, system, onChunk, { signal }));
+    return { text: r.text, provider: 'cursor', model: 'cursor-agent' };
   }
 
   if (preferred === 'ollama' || preferred === 'auto') {
