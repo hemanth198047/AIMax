@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Terminal, Play, Square, Plus, Trash2, FolderOpen, File as FileIcon, ChevronDown, ChevronUp, GitBranch, Save, RotateCcw, Shield } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { streamRun, cancelRun } from '../api/sandboxRun';
+import AgentPanel from './AgentPanel';
 import type { Sandbox, SandboxMode, SandboxCapabilities, SandboxFileEntry, SandboxGit, SandboxCheckpoint } from '../api/client';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
 
 interface OutputLine { text: string; type: 'stdout' | 'stderr' | 'info' | 'error'; }
-type Tab = 'terminal' | 'changes' | 'files';
+type Tab = 'terminal' | 'changes' | 'files' | 'agent';
 
 const MODE_LABEL: Record<SandboxMode, string> = {
   temporary: 'Temporary copy', readonly: 'Read-only', container: 'Container (Docker)', direct: 'Direct (real project)',
@@ -187,7 +188,7 @@ export default function SandboxPanel() {
           {/* Main area */}
           <div className="flex-1 flex flex-col min-w-0">
             <div className="flex items-center gap-1 px-2 border-b border-slate-700/30 h-7 flex-shrink-0">
-              {(['terminal', 'changes', 'files'] as Tab[]).map(t => (
+              {(['terminal', 'changes', 'files', 'agent'] as Tab[]).map(t => (
                 <button key={t} onClick={() => setTab(t)}
                   className={clsx('text-[10px] px-2 py-1 rounded capitalize', tab === t ? 'bg-slate-800 text-slate-200' : 'text-slate-600 hover:text-slate-400')}>
                   {t}{t === 'changes' && git?.status.files.length ? ` (${git.status.files.length})` : ''}
@@ -240,6 +241,11 @@ export default function SandboxPanel() {
                 </div>
               </div>
             )}
+
+            {tab === 'agent' && active && (
+              <AgentPanel sandboxId={active.id} editable={active.mode === 'temporary' || active.mode === 'container'} onChanged={() => refreshInspector(active.id)} />
+            )}
+            {tab === 'agent' && !active && <div className="p-3 text-[11px] text-slate-700">Create or select a sandbox first.</div>}
 
             {tab === 'files' && (
               <div className="flex-1 flex min-h-0">

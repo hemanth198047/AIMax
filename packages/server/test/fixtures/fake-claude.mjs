@@ -17,6 +17,15 @@ process.stdin.on('end', async () => {
   if (mode === 'bad-exit') { process.stderr.write('boom'); process.exit(2); }
   if (mode === 'fail-resume' && resume) { out({ type: 'result', subtype: 'error', is_error: true, result: 'No conversation found with session ID ' + resume, session_id: resume }); process.exit(1); }
   out({ type: 'system', subtype: 'init', session_id: sid });
+  if (mode === 'agent') {
+    const { writeFileSync, appendFileSync: ap } = await import('node:fs');
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: 'agent-made.txt' } }] }, session_id: sid });
+    writeFileSync('agent-made.txt', 'made by fake agent: ' + stdin.trim() + '\n');
+    try { ap('app.txt', 'agent touched this\n'); } catch {}
+    out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Created agent-made.txt.' } } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'Created agent-made.txt.', session_id: sid });
+    process.exit(0);
+  }
   if (mode === 'slow') { for (let i = 0; i < 200; i++) { out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: `s${i} ` } } }); await new Promise(r => setTimeout(r, 100)); } }
   if (mode !== 'assistant-only') {
     out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } } });

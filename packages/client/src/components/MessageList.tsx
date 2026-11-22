@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Bot, User } from 'lucide-react';
 import type { Message } from '../api/client';
 import RunProposal from './RunProposal';
+import EditProposal from './EditProposal';
 import clsx from 'clsx';
 
 interface Props {
@@ -94,6 +95,7 @@ function MarkdownContent({ content }: { content: string }) {
       components={{
         pre: ({ children }) => <>{children}</>,
         code({ children, className }) {
+          if (className === 'language-aimax-edit') return <EditProposal edits={String(children).replace(/\n$/, '')} />;
           if (className === 'language-aimax-run') return <RunProposal command={String(children).replace(/\n$/, '')} />;
           if (!className) {
             return <code className="bg-slate-700/60 px-1.5 py-0.5 rounded text-xs font-mono text-indigo-300">{children}</code>;

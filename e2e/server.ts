@@ -9,7 +9,9 @@ export async function startServer(dataDir: string) {
   const tsx = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
   proc = spawn(tsx, ['packages/server/src/index.ts'], {
     cwd: ROOT, shell: process.platform === 'win32',
-    env: { ...process.env, PORT: '3001', AIMAX_DATA_DIR: dataDir, AIMAX_TEST_PROVIDER: '1' },
+    env: { ...process.env, PORT: '3001', AIMAX_DATA_DIR: dataDir, AIMAX_TEST_PROVIDER: '1',
+      // A fake `claude` CLI (POSIX only) so the agent flow can be driven end to end without a real Claude.
+      ...(process.platform === 'win32' ? {} : { AIMAX_CLAUDE_BIN: join(ROOT, 'packages/server/test/fixtures/fake-claude.mjs'), FAKE_CLAUDE_MODE: 'agent', FAKE_CLAUDE_LOG: join(dataDir, 'fake-claude.log') }) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';

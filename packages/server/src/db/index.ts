@@ -288,6 +288,35 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       CREATE INDEX IF NOT EXISTS idx_usage_provider_ts ON usage_events(provider, ts);
     `);
   },
+  // v4: agent mode — base commit for diff/promote, promotion history (with the patch, so it can be undone), agent runs
+  (db) => {
+    if (!hasColumn(db, 'sandboxes', 'base_sha')) db.exec("ALTER TABLE sandboxes ADD COLUMN base_sha TEXT DEFAULT ''");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sandbox_promotions (
+        id TEXT PRIMARY KEY,
+        sandbox_id TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        files TEXT NOT NULL DEFAULT '[]',
+        patch TEXT NOT NULL,
+        undone_at TEXT DEFAULT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_promo_sandbox ON sandbox_promotions(sandbox_id);
+      CREATE TABLE IF NOT EXISTS agent_runs (
+        id TEXT PRIMARY KEY,
+        sandbox_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        task TEXT NOT NULL,
+        status TEXT DEFAULT 'running',     -- running | done | error | cancelled
+        checkpoint_before TEXT DEFAULT '',
+        summary TEXT DEFAULT '',
+        files TEXT DEFAULT '[]',
+        error TEXT DEFAULT '',
+        started_at TEXT NOT NULL,
+        finished_at TEXT DEFAULT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_sandbox ON agent_runs(sandbox_id);
+    `);
+  },
 ];
 
 function migrate(db: Database.Database) {

@@ -1,21 +1,21 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { getDb } from '../db/index.js';
 import { SandboxError, resolveInside, isDestructive } from '../sandbox/guard.js';
 import { startRun, cancelRun, dockerUsable, type RunResult } from '../sandbox/runner.js';
 import {
-  createWorkspace, destroyWorkspace, listFiles, gitStatus, gitDiff, createCheckpoint, listCheckpoints, restoreCheckpoint,
+  git, createWorkspace, destroyWorkspace, listFiles, gitStatus, gitDiff, createCheckpoint, listCheckpoints, restoreCheckpoint,
   type SandboxMode, type WorkspaceKind,
 } from '../sandbox/workspace.js';
 
-interface SandboxRow {
+export interface SandboxRow {
   id: string; name: string; project_id: string | null; mode: SandboxMode; working_dir: string; status: string;
-  source_path: string; workspace_kind: WorkspaceKind; approved_at: string | null; container_image: string;
+  source_path: string; workspace_kind: WorkspaceKind; approved_at: string | null; container_image: string; base_sha: string;
 }
 const MODES: SandboxMode[] = ['readonly', 'temporary', 'container', 'direct'];
 
-function getSandbox(id: string): SandboxRow {
+export function getSandbox(id: string): SandboxRow {
   const sb = getDb().prepare('SELECT * FROM sandboxes WHERE id=?').get(id) as SandboxRow | undefined;
   if (!sb) throw new SandboxError('Sandbox not found', 404);
   return sb;
@@ -92,9 +92,10 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const id = uuidv4();
     const ws = createWorkspace(id, mode as SandboxMode, source);
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO sandboxes(id,name,project_id,mode,working_dir,status,created_at,last_used,source_path,workspace_kind,approved_at,container_image)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id, name, project_id, mode, ws.dir, 'ready', now, now, ws.sourcePath, ws.kind, mode === 'direct' ? now : null, mode === 'container' ? image : '');
+    const base = ws.kind === 'source' ? '' : git(ws.dir, ['rev-parse', 'HEAD']).out.trim();   // what "changed in the sandbox" is measured against
+    db.prepare(`INSERT INTO sandboxes(id,name,project_id,mode,working_dir,status,created_at,last_used,source_path,workspace_kind,approved_at,container_image,base_sha)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, name, project_id, mode, ws.dir, 'ready', now, now, ws.sourcePath, ws.kind, mode === 'direct' ? now : null, mode === 'container' ? image : '', base);
     return getSandbox(id);
   });
 
@@ -152,6 +153,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string }; Querystring: { path?: string } }>('/api/sandbox/:id/file', async (req) => {
     const sb = getSandbox(req.params.id);
     const full = resolveInside(sb.working_dir, req.query.path ?? '');
+    if (!existsSync(full)) throw new SandboxError('File not found', 404);
     const st = statSync(full);
     if (!st.isFile()) throw new SandboxError('Not a file');
     if (st.size > 512 * 1024) return { path: req.query.path, size: st.size, tooLarge: true };

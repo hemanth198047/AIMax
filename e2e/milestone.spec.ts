@@ -307,3 +307,58 @@ test('usage & limits: a limit set in the UI is saved on the server; status never
   await page.getByLabel('claude hourly limit').fill(''); await page.getByLabel('claude hourly limit').blur();
   await expect.poll(async () => (await (await page.request.get('/api/settings/providers')).json()).limits).toEqual({ claude: { per_day: 30 } });
 });
+
+test('agent mode: AI-proposed edit → diff → approve into sandbox → review → apply to the real project → undo; CLI agent edits only the copy', async ({ page }) => {
+  const src = join(work, 'agent-src'); mkdirSync(src);
+  execSync('git init -q && git config user.email t@t && git config user.name t && echo base > app.txt && git add -A && git commit -qm init', { cwd: src });
+  const sb = await (await page.request.post('/api/sandbox', { data: { name: 'Agent sandbox', mode: 'temporary', source_path: src } })).json();
+
+  await page.goto('/');
+  await sidebarTab(page, 'Chats').click();
+  await page.getByRole('button', { name: /New Conversation/ }).first().click();
+  await page.getByRole('button', { name: /^Test/ }).click();
+  await page.getByText('Sandbox', { exact: true }).click();            // selects the sandbox
+  await expect(page.getByText(/Agent sandbox/).first()).toBeVisible();
+  await page.getByText('Sandbox', { exact: true }).click();
+
+  // 1. the AI proposes a new file; the card shows the real diff and nothing is written yet
+  expect(await askAndRead(page, 'create the greeting file [test:edit]')).toContain('edit-protocol: yes');
+  const card = page.getByTestId('edit-proposal').last();
+  await expect(card).toContainText('docs/hello.txt'); await expect(card).toContainText('+hello from an edit proposal');
+  expect((await page.request.get(`/api/sandbox/${sb.id}/file?path=docs/hello.txt`)).status()).toBe(404);
+  await card.getByRole('button', { name: /Apply to sandbox/ }).click();
+  await expect(card.getByTestId('edit-applied')).toBeVisible();
+  expect((await (await page.request.get(`/api/sandbox/${sb.id}/file?path=docs/hello.txt`)).json()).content).toBe('hello from an edit proposal');
+  expect(existsSync(join(src, 'docs/hello.txt'))).toBe(false);         // real project still untouched
+
+  // 2. a follow-up edit modifies it; a broken proposal is shown as an error and cannot be applied
+  await askAndRead(page, 'now change it [test:edit2]');
+  const card2 = page.getByTestId('edit-proposal').last();
+  await expect(card2).toContainText('-hello from an edit proposal'); await expect(card2).toContainText('+goodbye from an edit proposal');
+  await card2.getByRole('button', { name: /Apply to sandbox/ }).click(); await expect(card2.getByTestId('edit-applied')).toBeVisible();
+  await expect(page.getByTestId('edit-proposal').first().getByTestId('edit-error')).toBeVisible();   // the first card is stale now: its file already exists
+  await expect(page.getByTestId('edit-proposal').first().getByRole('button', { name: /Apply to sandbox/ })).toBeDisabled();
+
+  // 3. review and promote to the real project (confirm dialog), then undo
+  await page.getByText('Sandbox', { exact: true }).click();
+  await page.getByRole('button', { name: 'agent', exact: true }).click();
+  await expect(page.getByTestId('agent-panel')).toContainText('+goodbye from an edit proposal');
+  page.once('dialog', d => d.accept());
+  await page.getByTestId('promote').click();
+  await expect(page.getByTestId('promote-msg')).toContainText('Applied 1 file');
+  expect(readFileSync(join(src, 'docs/hello.txt'), 'utf8')).toBe('goodbye from an edit proposal');
+  await page.getByRole('button', { name: /undo/ }).click();
+  await expect(page.getByTestId('promote-msg')).toContainText('Undone');
+  expect(existsSync(join(src, 'docs/hello.txt'))).toBe(false);
+
+  // 4. CLI agent (fake claude on POSIX): edits only the sandbox copy, then it appears in review
+  if (process.platform !== 'win32') {
+    await page.getByLabel('Agent task').fill('add an agent note');
+    await page.getByRole('button', { name: /Run Claude agent/ }).click();
+    await expect(page.getByTestId('agent-log')).toContainText('Write agent-made.txt');
+    await expect(page.getByTestId('agent-log')).toContainText('Finished');
+    await expect(page.getByTestId('agent-panel')).toContainText('+made by fake agent: add an agent note');
+    expect(existsSync(join(src, 'agent-made.txt'))).toBe(false);
+    await shot(page, '08-agent-review');
+  }
+});
