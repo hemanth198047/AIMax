@@ -362,3 +362,34 @@ test('agent mode: AI-proposed edit → diff → approve into sandbox → review 
     await shot(page, '08-agent-review');
   }
 });
+
+test('import an earlier chat from an exported file, mask a secret, open it and continue it', async ({ page }) => {
+  const exp = join(work, 'old-chat.json');
+  writeFileSync(exp, JSON.stringify({ messages: [
+    { role: 'user', content: 'Earlier I set the gateway key to sk-ant-abcdefghijklmnopqrstuvwxyz123456 for the zebra-gateway' },
+    { role: 'assistant', content: 'Noted. The zebra-gateway now authenticates with that key.' },
+  ] }));
+  await page.goto('/');
+  await page.getByTestId('open-import').click();
+  await page.getByTestId('import-tab-file').click();
+  await page.getByTestId('import-file').setInputFiles(exp);
+  await expect(page.getByTestId('import-list')).toContainText('2 messages');
+  await page.getByTestId('import-run').click();
+  await expect(page.getByTestId('import-results')).toContainText('imported');
+  await expect(page.getByTestId('import-results')).toContainText('1 secret(s) masked');
+  await shot(page, '09-import');
+  await page.getByTestId('import-open').click();
+  await expect(page.getByTestId('msg-user').first()).toContainText('zebra-gateway');
+  await expect(page.getByTestId('msg-user').first()).not.toContainText('sk-ant-abcdef');
+  await expect(page.getByTestId('msg-user').first()).toContainText('[REDACTED');
+  // continue: the earlier turns are sent as history
+  await page.getByRole('button', { name: /^Test/ }).click();
+  const reply = await askAndRead(page, 'carry on with the zebra-gateway work');
+  expect(reply).toMatch(/history-messages: 3/);
+  // a second import of the same file is recognised
+  await page.getByTestId('open-import').click();
+  await page.getByTestId('import-tab-file').click();
+  await page.getByTestId('import-file').setInputFiles(exp);
+  await expect(page.getByTestId('import-list')).toContainText('already imported');
+  await expect(page.getByTestId('import-item-check')).toBeDisabled();
+});

@@ -317,6 +317,12 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       CREATE INDEX IF NOT EXISTS idx_agent_sandbox ON agent_runs(sandbox_id);
     `);
   },
+  // v5: imported conversations (from Claude Code / Cursor / exported files) — de-duplicated by source key
+  (db) => {
+    if (!hasColumn(db, 'conversations', 'import_source')) db.exec("ALTER TABLE conversations ADD COLUMN import_source TEXT DEFAULT NULL");
+    if (!hasColumn(db, 'conversations', 'import_key')) db.exec("ALTER TABLE conversations ADD COLUMN import_key TEXT DEFAULT NULL");
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_import_key ON conversations(import_key) WHERE import_key IS NOT NULL');
+  },
 ];
 
 function migrate(db: Database.Database) {

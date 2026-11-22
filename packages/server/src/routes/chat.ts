@@ -7,6 +7,7 @@ import { classifyTask } from '../gateway/classify.js';
 import { enhancePrompt, systemInstructions, ENHANCE_MODES, type EnhanceMode } from '../gateway/enhance.js';
 import { buildContext } from '../gateway/context.js';
 import { visibleConversation } from '../memory/projectScope.js';
+import { buildHistory } from '../gateway/history.js';
 
 interface ChatBody {
   conversationId?: string;
@@ -56,7 +57,8 @@ export async function chatRoutes(app: FastifyInstance) {
     db.prepare('INSERT INTO messages(id,conversation_id,role,content,attachments,created_at) VALUES(?,?,?,?,?,?)').run(uuidv4(), conversationId, 'user', message, attMeta, now);
 
     // History as stored (clean user text); only the LAST turn is enriched for the provider
-    const history = (db.prepare('SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC, rowid DESC LIMIT 20').all(conversationId) as { role: 'user' | 'assistant'; content: string }[]).reverse();
+    const hist = buildHistory(conversationId);
+    const history = hist.messages;
 
     // SSE (hijacked so the abort handling below is reliable)
     reply.hijack();
@@ -84,7 +86,8 @@ export async function chatRoutes(app: FastifyInstance) {
     send('activity', { step: 'enhance', detail: enhanceMode === 'off' || enhanceMode === 'minimal' ? `${enhanceMode} (unchanged)` : `${enhanceMode} (${enhanced.applied.join(', ')})` });
 
     const project = projectId ? db.prepare('SELECT instructions FROM projects WHERE id=?').get(projectId) as { instructions?: string } | undefined : undefined;
-    const system = systemInstructions({ projectInstructions: project?.instructions, mode: enhanceMode });
+    const system = systemInstructions({ projectInstructions: project?.instructions, mode: enhanceMode }) + (hist.digest ? `\n\n${hist.digest}` : '');
+    if (hist.omitted > 0) send('activity', { step: 'history', detail: `${hist.omitted} older message(s) summarised` });
 
     // Provider-facing last turn: user text → attachments → memory → guidance. Stored message stays clean.
     let turn = message + atts.map(a => attachmentBlock(a, a.extracted_text.length > 0)).join('');

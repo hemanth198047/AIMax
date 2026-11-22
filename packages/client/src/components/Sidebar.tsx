@@ -1,6 +1,6 @@
 import { loadConversations, ctxQs } from '../api/conversations';
 import React, { useEffect, useState } from 'react';
-import { Pin, Pencil, Archive, ArchiveRestore, Search, Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X, Link, Lightbulb } from 'lucide-react';
+import { Pin, Pencil, Archive, ArchiveRestore, Search, Plus, MessageSquare, FolderOpen, Users, Brain, CheckSquare, Settings, X, Link, Lightbulb, Download } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { apiFetch } from '../api/client';
 import type { Conversation, Project, Person } from '../api/client';
@@ -11,9 +11,10 @@ import PersonCreate from './PersonCreate';
 interface SidebarProps {
   onShowKnowledge: () => void;
   onShowLinkVault: () => void;
+  onShowImport: () => void;
 }
 
-export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarProps) {
+export default function Sidebar({ onShowKnowledge, onShowLinkVault, onShowImport }: SidebarProps) {
   const {
     sidebarSection, setSidebarSection, conversations, projects, people,
     activeConversationId, setActiveConversation, setConversations,
@@ -241,6 +242,10 @@ export default function Sidebar({ onShowKnowledge, onShowLinkVault }: SidebarPro
         <button onClick={onShowLinkVault}
           className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-indigo-400 rounded-lg transition-colors">
           <Link size={11} /> Link Vault
+        </button>
+        <button onClick={onShowImport} data-testid="open-import"
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-indigo-400 rounded-lg transition-colors">
+          <Download size={11} /> Import chats
         </button>
         <button className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-600 hover:text-slate-400 rounded-lg transition-colors">
           <Settings size={11} /> Settings
