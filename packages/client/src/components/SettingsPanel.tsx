@@ -7,8 +7,8 @@ interface Account {
   installed: boolean; path: string | null; version: string; installHint: string; loginSupported: boolean; statusSupported: boolean;
   signedIn: boolean | null; statusText: string; how: string; method: Method; lastRun: { apiKeySource: string; at: string } | null; loginCommand: string; logoutCommand: string; hint: string;
 }
-interface Method { kind: 'subscription' | 'api' | 'unknown'; label: string; evidence: string; account: string; fields: { key: string; value: string }[] }
-interface Accounts { accounts: Account[]; warnings: string[]; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
+interface Method { kind: 'subscription' | 'api' | 'unknown'; label: string; evidence: string; account: string; override?: string; fields: { key: string; value: string }[] }
+interface Accounts { accounts: Account[]; warnings: string[]; apiKeyFix: string; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
 interface OpenResult { opened: boolean; command: string; note: string }
 
 /** Settings: sign-in with your own Claude / Cursor / ChatGPT subscription through the vendors' official CLIs (no API keys). */
@@ -30,7 +30,9 @@ function MethodBox({ a }: { a: Account }) {
       {!out && m.kind === 'subscription' && <>
         <div className="text-sm font-semibold text-emerald-300">✓ Signed in with your SUBSCRIPTION</div>
         <div className="text-slate-200">{m.label}{m.account ? ` · ${m.account}` : ''}</div>
-        <div className="text-slate-400">Usage counts against your plan. No API credits are used, so "credit balance too low" will not come from this login.</div>
+        {m.override
+          ? <div className="text-red-300">⚠ But {m.override}, so this environment bills API credits instead of your plan.</div>
+          : <div className="text-slate-400">Usage counts against your plan. No API credits are used, so "credit balance too low" will not come from this login.</div>}
       </>}
       {!out && m.kind === 'api' && <>
         <div className="text-sm font-semibold text-red-300">⚠ Signed in with an API KEY / CONSOLE — not your subscription</div>
@@ -106,6 +108,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
             <h3 className="text-[10px] uppercase tracking-wider text-slate-500">Accounts — sign in with your subscription</h3>
             <p className="text-slate-500">Signing in works like the Claude, Cursor and ChatGPT apps: a browser window opens and you log in with your own account. AImax never sees your password or token — the official command-line tool of each service stores the login. No API keys needed.</p>
             {data?.warnings.map((w, i) => <div key={i} className="border-l-2 border-yellow-500 pl-2 text-yellow-300" data-testid="settings-warning">{w}</div>)}
+            {data?.apiKeyFix && (
+              <details className="border-l-2 border-yellow-500 pl-2 text-slate-400" data-testid="apikey-fix">
+                <summary className="cursor-pointer text-yellow-300 hover:text-yellow-200">How to remove ANTHROPIC_API_KEY from your computer (so the claude command in your own terminal uses your subscription too)</summary>
+                <div className="mt-1">{data.apiKeyFix}</div>
+              </details>
+            )}
             {err && <div className="text-red-400" data-testid="settings-error">{err}</div>}
             {!data && !err && <div className="text-slate-500">Checking…</div>}
             {data?.accounts.map(a => {

@@ -11,7 +11,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { resolveClaudeBin } from '../providers/claude.js';
+import { claudeChildEnv, resolveClaudeBin } from '../providers/claude.js';
 import { getSetting } from '../providers/usage.js';
 
 const WIN = process.platform === 'win32';
@@ -51,11 +51,11 @@ export function resolveBin(def: AccountDef): string | null {
 
 export interface CliRun { code: number | null; out: string; timedOut: boolean }
 /** Run a CLI with a fixed argument list; .cmd/.bat shims on Windows need a shell, so they get ONE command string (no user input in it). */
-export function runCli(file: string, args: string[], timeoutMs = 8000): CliRun {
+export function runCli(file: string, args: string[], timeoutMs = 8000, env?: NodeJS.ProcessEnv): CliRun {
   const shim = WIN && /\.(cmd|bat)$/i.test(file);
   const r = shim
-    ? spawnSync([file, ...args].map(quote).join(' '), { shell: true, encoding: 'utf8', timeout: timeoutMs, windowsHide: true })
-    : spawnSync(file, args, { encoding: 'utf8', timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    ? spawnSync([file, ...args].map(quote).join(' '), { shell: true, encoding: 'utf8', timeout: timeoutMs, windowsHide: true, env })
+    : spawnSync(file, args, { encoding: 'utf8', timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env });
   return { code: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim(), timedOut: r.error?.name === 'Error' && /ETIMEDOUT/.test(String((r.error as NodeJS.ErrnoException).code)) };
 }
 
@@ -65,6 +65,8 @@ export interface SignInMethod {
   label: string;            // one plain sentence: what you are signed in with
   evidence: string;         // exactly what the CLI said that this is based on
   account: string;          // email / account name when the CLI reports one
+  /** Non-empty when an API key from the environment OVERRIDES the stored login (so billing is the API, whatever you signed in with). */
+  override?: string;
   fields: { key: string; value: string }[];   // everything the CLI reported, as a table
 }
 const classify = (v: string): 'subscription' | 'api' | null => {
@@ -87,7 +89,8 @@ export function parseSignInMethod(text: string, provider: AccountId): SignInMeth
     const account = pick(flat, ['email', 'account', 'user', 'username']); const plan = pick(flat, ['subscriptionType', 'plan', 'subscription', 'tier']);
     const method = pick(flat, ['authMethod', 'loginMethod', 'method', 'authType']); const keySource = pick(flat, ['apiKeySource']);
     const kindFromMethod = method ? classify(method) : null;
-    if (kindFromMethod === 'subscription' || (!method && plan)) return { kind: 'subscription', label: `${provider === 'claude' ? 'Claude' : provider === 'openai' ? 'ChatGPT' : 'Cursor'} subscription${plan ? ` (${plan})` : ''}`, evidence: method ? `the CLI reported authMethod = "${method}"` : `the CLI reported a plan: "${plan}"`, account, fields };
+    const override = keySource && !/^(none|null|false)$/i.test(keySource) ? `an API key from ${keySource} is set and takes priority over this login` : '';
+    if (kindFromMethod === 'subscription' || (!method && plan)) return { kind: 'subscription', label: `${provider === 'claude' ? 'Claude' : provider === 'openai' ? 'ChatGPT' : 'Cursor'} subscription${plan ? ` (${plan})` : ''}`, evidence: method ? `the CLI reported authMethod = "${method}"${plan ? `, subscriptionType = "${plan}"` : ''}` : `the CLI reported a plan: "${plan}"`, account, fields, override };
     if (kindFromMethod === 'api') return { kind: 'api', label: 'API key / Console billing (pay-per-use credits)', evidence: `the CLI reported authMethod = "${method}"`, account, fields };
     if (!method && keySource && !/^(none|null|false)$/i.test(keySource)) return { kind: 'api', label: 'API key (pay-per-use credits)', evidence: `the CLI reported apiKeySource = "${keySource}"`, account, fields };
     return unknown(fields, account);
@@ -127,7 +130,7 @@ export function accountStatus(def: AccountDef): AccountStatus {
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;
   let signedIn: boolean | null = null; let statusText = ''; let statusFull = ''; let how = 'unknown';
   if (statusProbe) {
-    const s = runCli(file, def.status, 10_000); statusText = s.out.slice(0, 1500); statusFull = s.out;
+    const s = runCli(file, def.status, 10_000, def.id === 'claude' ? claudeChildEnv() : undefined); statusText = s.out.slice(0, 1500); statusFull = s.out;
     signedIn = s.timedOut ? null : (s.code === 0 && !NEGATIVE.test(s.out)); how = s.timedOut ? 'status command timed out' : `from "${[def.bins[0], ...def.status].join(' ')}" (exit ${s.code}) — heuristic`;
   } else if (def.id === 'claude') {
     // Older Claude Code without `auth` subcommands: only a file-EXISTENCE check (contents are never read). macOS keeps it in the Keychain → unknown.

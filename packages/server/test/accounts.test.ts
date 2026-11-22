@@ -54,7 +54,7 @@ test('API keys in the environment are NOT passed to Claude (so the subscription 
   await autoChat({ messages: [{ role: 'user', content: 'hi' }], system: 's', provider: 'claude' }, () => undefined);
   const run = readFileSync(LOG, 'utf8').trim().split('\n').map(l => JSON.parse(l)).at(-1);
   assert.deepEqual([run.hasApiKey, run.hasAuthToken], [false, false]);
-  const b = await accounts(); assert.match(b.warnings.join(' '), /ANTHROPIC_API_KEY.*ignores it/); assert.ok(!JSON.stringify(b).includes('sk-ant-test'));
+  const b = await accounts(); assert.match(b.warnings.join(' '), /ANTHROPIC_API_KEY.*AImax removes it/); assert.ok(!JSON.stringify(b).includes('sk-ant-test'));
   process.env.AIMAX_ALLOW_API_KEY = '1'; writeFileSync(LOG, '');
   await autoChat({ messages: [{ role: 'user', content: 'hi' }], system: 's', provider: 'claude' }, () => undefined);
   assert.equal(JSON.parse(readFileSync(LOG, 'utf8').trim().split('\n').at(-1)!).hasApiKey, true);          // explicit opt-in works
@@ -105,4 +105,20 @@ test('no false "API" verdicts from words like "API provider"; the last real run\
   process.env.FAKE_CLAUDE_KEYSRC = '/login managed key';
   await autoChat({ messages: [{ role: 'user', content: 'again' }], system: 's', provider: 'claude' }, () => undefined);
   assert.equal(acc(await accounts(), 'claude').lastRun.apiKeySource, '/login managed key'); delete process.env.FAKE_CLAUDE_KEYSRC;
+});
+
+test('REAL `claude auth status` shape (Pro login + ANTHROPIC_API_KEY set): login is the subscription, and the override is called out; AImax\'s own status run has the key removed', async () => {
+  const { parseSignInMethod: P } = await import('../src/accounts/cli.js');
+  const real = JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', analyticsDisabled: false, consoleProfileSignInOffered: true, apiKeySource: 'ANTHROPIC_API_KEY', email: 'me@example.com', orgName: "me@example.com's Organization", subscriptionType: 'pro', storedClaudeAiLogin: true, planTier: 'pro' }, null, 2);
+  const m = P(real, 'claude');
+  assert.deepEqual([m.kind, m.account, m.label], ['subscription', 'me@example.com', 'Claude subscription (pro)']);
+  assert.match(m.evidence, /authMethod = "claude\.ai", subscriptionType = "pro"/); assert.match(m.override!, /ANTHROPIC_API_KEY.*takes priority/);
+  assert.equal(P(real.replace('"ANTHROPIC_API_KEY"', '"none"'), 'claude').override, '');
+  // end to end with the fake CLI behaving like the real one: the key is in AImax's environment…
+  process.env.FAKE_CLAUDE_AUTH = 'real'; process.env.ANTHROPIC_API_KEY = 'sk-ant-test-not-real';
+  const b = await accounts(); const c = acc(b, 'claude');
+  assert.equal(c.method.kind, 'subscription'); assert.equal(c.method.override ?? '', '');         // …but AImax runs status WITHOUT it, i.e. exactly how its chats run
+  assert.match(b.warnings.join(' '), /bills that API key instead of using your subscription/); assert.match(b.apiKeyFix, /ANTHROPIC_API_KEY/); assert.ok(!JSON.stringify(b).includes('sk-ant-test'));
+  process.env.AIMAX_ALLOW_API_KEY = '1'; assert.match(acc(await accounts(), 'claude').method.override, /ANTHROPIC_API_KEY/); delete process.env.AIMAX_ALLOW_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.FAKE_CLAUDE_AUTH;
 });

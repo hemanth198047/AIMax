@@ -13,9 +13,12 @@ export async function accountsRoutes(app: FastifyInstance) {
       accounts,
       warnings: [
         ...(envKeys.filter(k => k.startsWith('ANTHROPIC')).length && process.env.AIMAX_ALLOW_API_KEY !== '1'
-          ? [`${envKeys.filter(k => k.startsWith('ANTHROPIC')).join(', ')} is set on this computer. Claude Code would bill that API key instead of using your subscription, so AImax ignores it when it starts Claude.`] : []),
+          ? [`${envKeys.filter(k => k.startsWith('ANTHROPIC')).join(', ')} is set on this computer. In your own terminal, claude bills that API key instead of using your subscription (that is what causes "credit balance too low"). AImax removes it when it starts Claude, so chats made through AImax use your subscription.`] : []),
         ...(envKeys.includes('OPENAI_API_KEY') ? ['OPENAI_API_KEY is set on this computer. AImax does not use it.'] : []),
       ],
+      apiKeyFix: envKeys.some(k => k.startsWith('ANTHROPIC')) ? (process.platform === 'win32'
+        ? 'In PowerShell: (1) see where it is set — [bool][Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY","User") and [bool][Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY","Machine"); (2) remove the user one — [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY",$null,"User") (the Machine one needs an Administrator PowerShell, or Windows Settings → search "environment variables"); (3) close and reopen your terminals.'
+        : 'Find it with:  grep -rn ANTHROPIC_API_KEY ~/.bashrc ~/.zshrc ~/.profile ~/.zprofile 2>/dev/null  then delete that line and open a new terminal.') : '',
       info: { dataDir: DATA_DIR, platform: process.platform, node: process.version, claudeBin: resolveBin(ACCOUNTS[0]) },
     };
   });

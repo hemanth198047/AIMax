@@ -8,6 +8,7 @@ if (args[0] === 'auth') {
   const a = process.env.FAKE_CLAUDE_AUTH || 'in';
   if (a === 'none') { console.error("error: unknown command 'auth'"); process.exit(1); }
   if (args.includes('--help')) { console.log('Usage: claude auth ' + args[1]); process.exit(0); }
+  if (args[1] === 'status' && a === 'real') { console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', analyticsDisabled: false, loginExpiresAt: '2026-12-21T02:51:07.875Z', consoleProfileSignInOffered: true, apiKeySource: process.env.ANTHROPIC_API_KEY ? 'ANTHROPIC_API_KEY' : 'none', email: 'me@example.com', orgName: "me@example.com's Organization", subscriptionType: 'pro', storedClaudeAiLogin: true, planTier: 'pro' }, null, 2)); process.exit(0); }
   if (args[1] === 'status' && a === 'json') { console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', apiKeySource: 'none', subscriptionType: 'max', email: 'me@example.com' }, null, 2)); process.exit(0); }
   if (args[1] === 'status' && a === 'console') { console.log(JSON.stringify({ loggedIn: true, authMethod: 'console', apiProvider: 'firstParty', apiKeySource: '/login managed key', email: 'me@example.com' })); process.exit(0); }
   if (args[1] === 'status') { if (a === 'out') { console.log('Not logged in. Run claude auth login'); process.exit(1); } console.log('Logged in using claude.ai subscription (pro)'); process.exit(0); }
