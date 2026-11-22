@@ -122,3 +122,21 @@ test('REAL `claude auth status` shape (Pro login + ANTHROPIC_API_KEY set): login
   process.env.AIMAX_ALLOW_API_KEY = '1'; assert.match(acc(await accounts(), 'claude').method.override, /ANTHROPIC_API_KEY/); delete process.env.AIMAX_ALLOW_API_KEY;
   delete process.env.ANTHROPIC_API_KEY; delete process.env.FAKE_CLAUDE_AUTH;
 });
+
+test('Cursor not installed: explains the desktop app is not scriptable, finds the desktop app, offers the official installer in a visible terminal', { skip: !IS_POSIX }, async () => {
+  const { mkdtempSync: mk, writeFileSync: wf, chmodSync } = await import('node:fs');
+  const dir = mk(join(tmpdir(), 'fakeapp-')); wf(join(dir, 'cursor'), '#!/bin/sh\n'); chmodSync(join(dir, 'cursor'), 0o755);   // a `cursor` editor launcher, NOT cursor-agent
+  const oldPath = process.env.PATH; process.env.PATH = `${oldPath}:${dir}`;
+  try {
+    const c = acc(await accounts(), 'cursor');
+    assert.equal(c.installed, false); assert.equal(c.desktopApp, join(dir, 'cursor'));                     // desktop app seen, but it is not the CLI
+    assert.equal(c.installCommand, 'curl https://cursor.com/install -fsS | bash'); assert.match(c.installDoc, /cursor\.com\/docs\/cli/); assert.match(c.hint, /cannot be controlled/);
+    writeFileSync(TERM, '');
+    const post = (body: object, hdr: Record<string, string> = { 'x-aimax-ui': '1' }) => app.inject({ method: 'POST', url: '/api/accounts/cursor/terminal', payload: body, headers: hdr });
+    assert.equal((await post({ action: 'install' }, {})).statusCode, 403);
+    assert.equal((await post({ action: 'install', command: 'rm -rf /' })).statusCode, 200);
+    assert.equal(readFileSync(TERM, 'utf8').trim(), 'curl https://cursor.com/install -fsS | bash');          // fixed command; body ignored
+    assert.equal((await app.inject({ method: 'POST', url: '/api/accounts/claude/terminal', payload: { action: 'install' }, headers: { 'x-aimax-ui': '1' } })).statusCode, 400);   // no installer offered for Claude
+  } finally { process.env.PATH = oldPath; }
+  assert.equal(acc(await accounts(), 'openai').installCommand, 'npm install -g @openai/codex');
+});

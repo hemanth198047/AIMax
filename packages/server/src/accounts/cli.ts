@@ -20,6 +20,8 @@ export type AccountId = 'claude' | 'cursor' | 'openai';
 export interface AccountDef {
   id: AccountId; label: string; app: string; bins: string[]; installHint: string;
   login: string[]; status: string[]; logout: string[];
+  /** Official one-line installer, shown to the user and run in a visible terminal only when they click the button. */
+  install?: { win: string; posix: string; doc: string };
   /** Can AImax actually chat through this provider yet? */
   adapter: 'ready' | 'not-built'; blurb: string;
 }
@@ -27,10 +29,12 @@ export const ACCOUNTS: AccountDef[] = [
   { id: 'claude', label: 'Claude', app: 'claude.ai (Pro / Max subscription)', bins: [process.env.AIMAX_CLAUDE_BIN || 'claude'], installHint: 'Install Claude Code from https://claude.com/claude-code',
     login: ['auth', 'login'], status: ['auth', 'status'], logout: ['auth', 'logout'], adapter: 'ready',
     blurb: 'AImax chats through the Claude Code CLI, which uses your Claude subscription login — no API key.' },
-  { id: 'cursor', label: 'Cursor', app: 'Cursor app account', bins: ['cursor-agent', 'agent'], installHint: 'Install the Cursor CLI (cursor-agent) from https://cursor.com/cli',
+  { id: 'cursor', label: 'Cursor', app: 'Cursor app account', bins: ['cursor-agent', 'agent'], installHint: 'Install the Cursor CLI (the Cursor desktop app cannot be controlled by other programs).',
+    install: { win: "irm 'https://cursor.com/install?win32=true' | iex", posix: 'curl https://cursor.com/install -fsS | bash', doc: 'https://cursor.com/docs/cli/installation' },
     login: ['login'], status: ['status'], logout: ['logout'], adapter: 'not-built',
     blurb: 'Signs the Cursor CLI in with your Cursor account. AImax cannot chat through Cursor yet (adapter not built).' },
   { id: 'openai', label: 'OpenAI (ChatGPT / Codex)', app: 'ChatGPT account via the Codex CLI', bins: ['codex'], installHint: 'Install the Codex CLI: npm install -g @openai/codex',
+    install: { win: 'npm install -g @openai/codex', posix: 'npm install -g @openai/codex', doc: 'https://github.com/openai/codex' },
     login: ['login'], status: ['login', 'status'], logout: ['logout'], adapter: 'not-built',
     blurb: 'Signs the Codex CLI in with your ChatGPT account. AImax cannot chat through Codex yet (adapter not built).' },
 ];
@@ -40,7 +44,8 @@ const quote = (a: string) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : 
 function findOnPath(name: string): string | null {
   const exts = WIN ? ['.exe', '.cmd', '.bat', ''] : [''];
   if (name.includes('/') || name.includes('\\')) return existsSync(name) ? name : null;
-  for (const d of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) for (const e of exts) { const p = join(d, name + e); if (existsSync(p)) return p; }
+  const extra = [join(homedir(), '.local', 'bin'), ...(WIN && process.env.LOCALAPPDATA ? [join(process.env.LOCALAPPDATA, 'cursor-agent'), join(process.env.LOCALAPPDATA, 'Programs', 'cursor-agent')] : [])];
+  for (const d of [...(process.env.PATH ?? '').split(delimiter).filter(Boolean), ...extra]) for (const e of exts) { const p = join(d, name + e); if (existsSync(p)) return p; }
   return null;
 }
 export function resolveBin(def: AccountDef): string | null {
@@ -118,13 +123,15 @@ export interface AccountStatus {
   method: SignInMethod;
   /** What Claude itself reported at the start of the last real chat run through AImax (ground truth, independent of the status command). */
   lastRun: { apiKeySource: string; at: string } | null;
+  /** Not-installed help: the official installer command + docs, and (Cursor) whether the desktop app was found. */
+  installCommand: string | null; installDoc: string | null; desktopApp: string | null;
 }
 
 export function accountStatus(def: AccountDef): AccountStatus {
   const file = resolveBin(def);
   const base = { id: def.id, label: def.label, app: def.app, blurb: def.blurb, adapter: def.adapter, installHint: def.installHint };
   if (!file) return { ...base, installed: false, path: null, version: '', loginSupported: false, statusSupported: false, signedIn: null, statusText: '', how: 'not installed',
-    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, lastRun: null, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
+    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, lastRun: null, installCommand: installCommandFor(def), installDoc: def.install?.doc ?? null, desktopApp: def.id === 'cursor' ? findCursorApp() : null, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
   const version = runCli(file, ['--version'], 6000).out.split(/\r?\n/)[0].slice(0, 80);
   const loginSupported = runCli(file, [...def.login, '--help'], 6000).code === 0;
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;
@@ -141,16 +148,25 @@ export function accountStatus(def: AccountDef): AccountStatus {
   const method: SignInMethod = signedIn === false ? { kind: 'unknown', label: 'Not signed in', evidence: statusText ? 'the CLI says you are not signed in' : '', account: '', fields: [] }
     : signedIn === null && !statusFull ? { kind: 'unknown', label: 'Cannot tell — this CLI version has no status command', evidence: how, account: '', fields: [] } : parseSignInMethod(statusFull, def.id);
   const lastRun = def.id === 'claude' ? getSetting<{ apiKeySource: string; at: string } | null>('claude:last_run', null) : null;
-  return { ...base, method, lastRun, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
+  return { ...base, method, lastRun, installCommand: installCommandFor(def), installDoc: def.install?.doc ?? null, desktopApp: def.id === 'cursor' ? findCursorApp() : null, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
     logoutCommand: [def.bins[0], ...def.logout].join(' '),
     hint: loginSupported ? '' : def.id === 'claude' ? 'This Claude Code version has no "claude auth login". Run "claude" in a terminal and type /login.' : 'This CLI version did not recognise its login command — run it with --help to see how it signs in.' };
 }
 
+/** The Cursor DESKTOP app (an editor, not scriptable). Only used to tell the user what we found. */
+export function findCursorApp(): string | null {
+  const c = [...(WIN && process.env.LOCALAPPDATA ? [join(process.env.LOCALAPPDATA, 'Programs', 'cursor', 'Cursor.exe')] : []), '/Applications/Cursor.app', join(homedir(), 'Applications', 'Cursor.app')];
+  for (const p of c) if (existsSync(p)) return p;
+  return findOnPath('cursor');
+}
+export const installCommandFor = (def: AccountDef): string | null => def.install ? (WIN ? def.install.win : def.install.posix) : null;
+
 export interface OpenResult { opened: boolean; command: string; note: string }
 /** Open a terminal window on THIS computer running one of the fixed commands above. `command` never contains user input. */
-export function openTerminal(command: string): OpenResult {
+export function openTerminal(command: string, opts: { powershell?: string } = {}): OpenResult {
   if (process.env.AIMAX_TERMINAL_LOG) { appendFileSync(process.env.AIMAX_TERMINAL_LOG, command + '\n'); return { opened: true, command, note: 'test mode: command logged, no window opened' }; }
   try {
+    if (WIN && opts.powershell) { spawn('cmd.exe', ['/c', 'start', 'AImax', 'powershell', '-NoExit', '-NoProfile', '-Command', opts.powershell], { detached: true, stdio: 'ignore' }).unref(); return { opened: true, command, note: 'A PowerShell window opened and is running the installer.' }; }
     if (WIN) { spawn('cmd.exe', ['/c', 'start', 'AImax sign-in', 'cmd.exe', '/k', command], { detached: true, stdio: 'ignore' }).unref(); return { opened: true, command, note: 'A terminal window opened. Finish the sign-in there (it opens your browser).' }; }
     if (process.platform === 'darwin') { spawn('osascript', ['-e', `tell application "Terminal" to do script ${JSON.stringify(command)}`, '-e', 'tell application "Terminal" to activate'], { detached: true, stdio: 'ignore' }).unref(); return { opened: true, command, note: 'A Terminal window opened. Finish the sign-in there.' }; }
     const sh = `${command}; echo; read -r -p "Press Enter to close" _`;

@@ -5,7 +5,7 @@ import { apiFetch } from '../api/client';
 interface Account {
   id: 'claude' | 'cursor' | 'openai'; label: string; app: string; blurb: string; adapter: 'ready' | 'not-built';
   installed: boolean; path: string | null; version: string; installHint: string; loginSupported: boolean; statusSupported: boolean;
-  signedIn: boolean | null; statusText: string; how: string; method: Method; lastRun: { apiKeySource: string; at: string } | null; loginCommand: string; logoutCommand: string; hint: string;
+  signedIn: boolean | null; statusText: string; how: string; method: Method; lastRun: { apiKeySource: string; at: string } | null; installCommand: string | null; installDoc: string | null; desktopApp: string | null; loginCommand: string; logoutCommand: string; hint: string;
 }
 interface Method { kind: 'subscription' | 'api' | 'unknown'; label: string; evidence: string; account: string; override?: string; fields: { key: string; value: string }[] }
 interface Accounts { accounts: Account[]; warnings: string[]; apiKeyFix: string; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
@@ -17,6 +17,33 @@ const FIX: Record<Account['id'], string> = {
   openai: 'Click Sign out, then Sign in, and choose "Sign in with ChatGPT" — not "Use an API key".',
   cursor: 'Click Sign out, then Sign in with your Cursor account in the browser — not an API key.',
 };
+
+/** Shown when a service's command-line tool is missing: why it is needed, the official installer, and what to do afterwards. */
+function NotInstalled({ a, onInstall, copy }: { a: Account; onInstall: () => void; copy: (t: string) => void }) {
+  return (
+    <div className="border border-slate-700 rounded p-3 space-y-2 bg-slate-950/40" data-testid={`install-${a.id}`}>
+      {a.id === 'cursor' && (
+        <div className="text-slate-300 space-y-1">
+          <div>{a.desktopApp ? <>✓ The <b>Cursor desktop app</b> is on this computer (<span className="text-slate-500">{a.desktopApp}</span>).</> : 'The Cursor desktop app was not found here.'}</div>
+          <div className="text-yellow-300">But the desktop app cannot be controlled by other programs — it has no way to receive a message from AImax and send back an answer. Cursor's official way in for tools like AImax is its separate <b>Cursor CLI</b>. It signs in with the same Cursor account through your browser — no API key.</div>
+        </div>
+      )}
+      {a.id !== 'cursor' && <div className="text-slate-300">{a.installHint}</div>}
+      {a.installCommand && (
+        <>
+          <div className="text-slate-400">Official installer{a.id === 'cursor' ? ' (PowerShell on Windows)' : ''}:</div>
+          <div className="flex items-start gap-2"><code className="flex-1 bg-slate-950 rounded p-2 text-slate-200 break-all">{a.installCommand}</code>
+            <button onClick={() => copy(a.installCommand!)} aria-label={`Copy ${a.id} install command`} className="text-slate-500 hover:text-slate-200 mt-2"><Copy size={12} /></button></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={onInstall} data-testid={`install-btn-${a.id}`} className="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-500">Open a terminal and install</button>
+            {a.installDoc && <a href={a.installDoc} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">Official instructions</a>}
+          </div>
+          <div className="text-slate-500">After it finishes: close that window, then <b>restart AImax</b> (Ctrl+C, then <code>.\aimax.ps1</code>) so it sees the new tool, open Settings and click <b>Sign in</b>.</div>
+        </>
+      )}
+    </div>
+  );
+}
 
 /** The one thing you need to know about each account: HOW you are signed in, and what that means for billing. */
 function MethodBox({ a }: { a: Account }) {
@@ -76,7 +103,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   }, []);
   useEffect(() => { void load(); return () => { if (timer.current) clearInterval(timer.current); }; }, [load]);
 
-  const act = async (id: string, action: 'login' | 'logout') => {
+  const act = async (id: string, action: 'login' | 'logout' | 'install') => {
     setErr('');
     try {
       const r = await apiFetch<OpenResult>(`/api/accounts/${id}/terminal`, { method: 'POST', headers: { 'X-AImax-UI': '1' }, body: JSON.stringify({ action }) });
@@ -128,7 +155,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                   {a.adapter === 'not-built' && <div className="text-yellow-500">Sign-in only: AImax cannot use this account for chat yet.</div>}
                   {a.installed
                     ? <div className="text-slate-600">{a.version || 'installed'} · {a.path}</div>
-                    : <div className="text-slate-400">{a.installHint}</div>}
+                    : <NotInstalled a={a} onInstall={() => void act(a.id, 'install')} copy={copy} />}
                   {a.installed && <MethodBox a={a} />}
                   {a.hint && a.installed && <div className="text-yellow-500">{a.hint}</div>}
                   {a.installed && (

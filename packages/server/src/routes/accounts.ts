@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ACCOUNTS, accountStatus, openTerminal, resolveBin, type AccountId } from '../accounts/cli.js';
+import { ACCOUNTS, accountStatus, installCommandFor, openTerminal, resolveBin, type AccountId } from '../accounts/cli.js';
 import { DATA_DIR } from '../db/index.js';
 
 const quote = (a: string) => (/[\s"]/.test(a) ? `"${a}"` : a);
@@ -31,8 +31,14 @@ export async function accountsRoutes(app: FastifyInstance) {
     if (req.headers['x-aimax-ui'] !== '1') return reply.status(403).send({ error: 'Forbidden' });
     const def = ACCOUNTS.find(a => a.id === (req.params.id as AccountId));
     if (!def) return reply.status(404).send({ error: 'Unknown provider' });
-    const action = req.body?.action === 'logout' ? 'logout' : req.body?.action === 'login' ? 'login' : null;
-    if (!action) return reply.status(400).send({ error: 'action must be "login" or "logout"' });
+    const action = req.body?.action === 'logout' ? 'logout' : req.body?.action === 'login' ? 'login' : req.body?.action === 'install' ? 'install' : null;
+    if (!action) return reply.status(400).send({ error: 'action must be "login", "logout" or "install"' });
+    if (action === 'install') {                                   // the vendor's own installer, from a fixed table, in a window the user can see
+      const cmd = installCommandFor(def);
+      if (!cmd) return reply.status(400).send({ error: `No installer is offered for ${def.label}` });
+      if (resolveBin(def)) return reply.status(409).send({ error: `${def.label} CLI is already installed` });
+      return process.platform === 'win32' && def.id === 'cursor' ? openTerminal(cmd, { powershell: cmd }) : openTerminal(cmd);
+    }
     const file = resolveBin(def);
     if (!file) return reply.status(404).send({ error: `${def.label} CLI is not installed. ${def.installHint}` });
     const st = accountStatus(def);
