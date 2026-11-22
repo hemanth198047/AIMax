@@ -5,12 +5,55 @@ import { apiFetch } from '../api/client';
 interface Account {
   id: 'claude' | 'cursor' | 'openai'; label: string; app: string; blurb: string; adapter: 'ready' | 'not-built';
   installed: boolean; path: string | null; version: string; installHint: string; loginSupported: boolean; statusSupported: boolean;
-  signedIn: boolean | null; statusText: string; how: string; billing: 'api' | 'subscription' | null; loginCommand: string; logoutCommand: string; hint: string;
+  signedIn: boolean | null; statusText: string; how: string; method: Method; loginCommand: string; logoutCommand: string; hint: string;
 }
+interface Method { kind: 'subscription' | 'api' | 'unknown'; label: string; evidence: string; account: string; fields: { key: string; value: string }[] }
 interface Accounts { accounts: Account[]; warnings: string[]; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
 interface OpenResult { opened: boolean; command: string; note: string }
 
 /** Settings: sign-in with your own Claude / Cursor / ChatGPT subscription through the vendors' official CLIs (no API keys). */
+const FIX: Record<Account['id'], string> = {
+  claude: 'Click Sign out, then Sign in, and in the browser choose "Claude account with subscription" (Pro / Max) — not "Anthropic Console account".',
+  openai: 'Click Sign out, then Sign in, and choose "Sign in with ChatGPT" — not "Use an API key".',
+  cursor: 'Click Sign out, then Sign in with your Cursor account in the browser — not an API key.',
+};
+
+/** The one thing you need to know about each account: HOW you are signed in, and what that means for billing. */
+function MethodBox({ a }: { a: Account }) {
+  const m = a.method;
+  const out = a.signedIn === false;
+  const tone = out ? 'border-slate-600 bg-slate-800/60' : m.kind === 'subscription' ? 'border-emerald-600 bg-emerald-950/40' : m.kind === 'api' ? 'border-red-600 bg-red-950/40' : 'border-yellow-600 bg-yellow-950/30';
+  const details = `${a.label}\nSigned in: ${a.signedIn}\nMethod: ${m.kind} — ${m.label}\nBased on: ${m.evidence}\n--- CLI output ---\n${a.statusText}`;
+  return (
+    <div className={`border-l-4 rounded p-3 space-y-1 ${tone}`} data-testid={`method-${a.id}`} data-kind={out ? 'signed-out' : m.kind}>
+      {out && <div className="text-sm font-semibold text-slate-200">Not signed in</div>}
+      {!out && m.kind === 'subscription' && <>
+        <div className="text-sm font-semibold text-emerald-300">✓ Signed in with your SUBSCRIPTION</div>
+        <div className="text-slate-200">{m.label}{m.account ? ` · ${m.account}` : ''}</div>
+        <div className="text-slate-400">Usage counts against your plan. No API credits are used, so "credit balance too low" will not come from this login.</div>
+      </>}
+      {!out && m.kind === 'api' && <>
+        <div className="text-sm font-semibold text-red-300">⚠ Signed in with an API KEY / CONSOLE — not your subscription</div>
+        <div className="text-slate-200">{m.label}{m.account ? ` · ${m.account}` : ''}</div>
+        <div className="text-slate-300">This bills pay-per-use API credits. A Pro/Max plan has none, which is why you see "credit balance too low".</div>
+        <div className="text-red-200"><b>Fix:</b> {FIX[a.id]}</div>
+      </>}
+      {!out && m.kind === 'unknown' && <>
+        <div className="text-sm font-semibold text-yellow-300">? Signed in, but this tool does not say how</div>
+        <div className="text-slate-300">{m.label}{m.account ? ` · ${m.account}` : ''}. AImax will not guess. Open "What the tool reported" below; if it names an API key or Console, sign out and in again with your subscription.</div>
+      </>}
+      {out && <div className="text-slate-400">Click Sign in below.</div>}
+      {m.evidence && !out && <div className="text-slate-500">Based on: {m.evidence}</div>}
+      <details className="text-slate-500">
+        <summary className="cursor-pointer hover:text-slate-300">What the tool reported</summary>
+        {m.fields.length > 0 && <table className="mt-1 w-full"><tbody>{m.fields.map(f => <tr key={f.key} className="border-t border-slate-800"><td className="pr-3 py-0.5 text-slate-500 whitespace-nowrap">{f.key}</td><td className="text-slate-300 break-all">{f.value}</td></tr>)}</tbody></table>}
+        <pre className="bg-slate-950 rounded p-2 mt-1 text-slate-400 whitespace-pre-wrap max-h-40 overflow-y-auto">{a.statusText || '(no output)'}</pre>
+        <button onClick={() => void navigator.clipboard?.writeText(details)} className="mt-1 text-indigo-400 hover:underline">Copy these details</button>
+      </details>
+    </div>
+  );
+}
+
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<Accounts | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,7 +78,11 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       timer.current = setInterval(() => { void load(); if (++n >= 30 && timer.current) { clearInterval(timer.current); setWatching(null); } }, 6000);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   };
-  const badge = (a: Account) => !a.installed ? ['Not installed', 'bg-slate-700 text-slate-300'] : a.signedIn === true ? ['Signed in', 'bg-emerald-700 text-emerald-100'] : a.signedIn === false ? ['Not signed in', 'bg-yellow-700 text-yellow-100'] : ['Status unknown', 'bg-slate-700 text-slate-300'];
+  const badge = (a: Account) => !a.installed ? ['Not installed', 'bg-slate-700 text-slate-300']
+    : a.signedIn === false ? ['Not signed in', 'bg-slate-600 text-slate-100']
+    : a.method.kind === 'subscription' ? ['Subscription', 'bg-emerald-700 text-emerald-100']
+    : a.method.kind === 'api' ? ['API key / Console', 'bg-red-700 text-red-100']
+    : a.signedIn === true ? ['Signed in · method unknown', 'bg-yellow-700 text-yellow-100'] : ['Status unknown', 'bg-slate-700 text-slate-300'];
   const copy = (t: string) => void navigator.clipboard?.writeText(t).catch(() => undefined);
 
   return (
@@ -68,11 +115,8 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                   {a.installed
                     ? <div className="text-slate-600">{a.version || 'installed'} · {a.path}</div>
                     : <div className="text-slate-400">{a.installHint}</div>}
-                  {a.installed && a.statusText && <pre className="bg-slate-950 rounded p-2 text-slate-400 whitespace-pre-wrap max-h-24 overflow-y-auto">{a.statusText}</pre>}
-                  {a.installed && <div className="text-slate-600">How this was determined: {a.how}</div>}
-                  {a.billing === 'api' && <div className="border-l-2 border-red-500 pl-2 text-red-300" data-testid={`billing-${a.id}`}>This login looks like API / Console billing, not your subscription — that is what causes "credit balance too low". Click Sign out, then Sign in and choose the account <b>with subscription</b> (Claude Pro/Max), not "Console".</div>}
-                  {a.billing === 'subscription' && <div className="text-emerald-500" data-testid={`billing-${a.id}`}>Looks like a subscription login (based on the CLI's wording).</div>}
-                  {a.hint && <div className="text-yellow-500">{a.hint}</div>}
+                  {a.installed && <MethodBox a={a} />}
+                  {a.hint && a.installed && <div className="text-yellow-500">{a.hint}</div>}
                   {a.installed && (
                     <div className="flex flex-wrap items-center gap-2">
                       <button onClick={() => void act(a.id, 'login')} data-testid={`signin-${a.id}`} className="flex items-center gap-1 px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-500"><LogIn size={12} /> {a.signedIn ? 'Sign in again' : 'Sign in'}</button>

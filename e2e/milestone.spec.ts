@@ -431,8 +431,9 @@ test('settings opens; accounts show real CLI state; sign-in opens a terminal wit
   await expect(page.getByTestId('settings-panel')).toBeVisible();
   const claude = page.getByTestId('account-claude');
   await expect(claude).toContainText('Claude Code CLI');                                     // blurb: subscription login, no API key
-  await expect(page.getByTestId('account-claude-state')).toHaveText('Signed in');
-  await expect(page.getByTestId('billing-claude')).toContainText('subscription login');
+  await expect(page.getByTestId('account-claude-state')).toHaveText('Subscription');
+  await expect(page.getByTestId('method-claude')).toContainText('Signed in with your SUBSCRIPTION');
+  await expect(page.getByTestId('method-claude')).toContainText('Based on:');
   await expect(page.getByTestId('account-cursor-state')).toHaveText('Not installed');
   await expect(page.getByTestId('account-openai')).toContainText('npm install -g @openai/codex');
   await expect(page.getByTestId('account-cursor')).not.toContainText('Sign in');

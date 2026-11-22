@@ -26,7 +26,7 @@ test('accounts: Claude is detected, signed-in state comes from the CLI itself; m
   process.env.FAKE_CLAUDE_AUTH = 'in';
   let b = await accounts(); let c = acc(b, 'claude');
   assert.deepEqual([c.installed, c.loginSupported, c.statusSupported, c.signedIn, c.adapter], [true, true, true, true, 'ready']);
-  assert.match(c.statusText, /Logged in/); assert.equal(c.billing, 'subscription'); assert.match(c.how, /heuristic/); assert.equal(c.version, '0.0.0-fake');
+  assert.match(c.statusText, /Logged in/); assert.equal(c.method.kind, 'subscription'); assert.match(c.how, /heuristic/); assert.equal(c.version, '0.0.0-fake');
   process.env.FAKE_CLAUDE_AUTH = 'out'; c = acc(await accounts(), 'claude'); assert.equal(c.signedIn, false); assert.match(c.statusText, /Not logged in/);
   process.env.FAKE_CLAUDE_AUTH = 'none'; c = acc(await accounts(), 'claude');
   assert.deepEqual([c.installed, c.loginSupported, c.signedIn], [true, false, null]); assert.match(c.hint, /\/login/); assert.equal(c.loginCommand, 'claude');
@@ -70,4 +70,25 @@ test('"credit balance too low" is explained (API billing, not subscription) and 
   assert.match(explainClaudeError('Invalid API key · Please run /login'), /not signed in/);
   assert.equal(explainClaudeError('some other failure'), 'some other failure');
   assert.equal(looksRateLimited('Claude usage limit reached'), true);                       // real limits still pause
+});
+
+test('sign-in method is read from the CLI\'s own fields — key NAMES like apiKeySource never cause an "API" verdict', async () => {
+  const { parseSignInMethod: P } = await import('../src/accounts/cli.js');
+  const sub = P(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', apiKeySource: 'none', subscriptionType: 'max', email: 'me@example.com' }), 'claude');
+  assert.deepEqual([sub.kind, sub.account], ['subscription', 'me@example.com']); assert.match(sub.label, /Claude subscription \(max\)/); assert.match(sub.evidence, /authMethod = "claude\.ai"/);
+  assert.ok(sub.fields.some(f => f.key === 'apiKeySource' && f.value === 'none'));
+  const api = P(JSON.stringify({ loggedIn: true, authMethod: 'console', apiKeySource: '/login managed key' }), 'claude'); assert.equal(api.kind, 'api'); assert.match(api.evidence, /authMethod = "console"/);
+  assert.equal(P(JSON.stringify({ loggedIn: true, apiKeySource: 'ANTHROPIC_API_KEY' }), 'claude').kind, 'api');            // key in use and nothing says otherwise
+  assert.equal(P(JSON.stringify({ loggedIn: true, apiKeySource: 'none' }), 'claude').kind, 'unknown');                       // says nothing → unknown, not guessed
+  assert.equal(P('Logged in using ChatGPT', 'openai').kind, 'subscription'); assert.match(P('Logged in using ChatGPT', 'openai').label, /Subscription/);
+  assert.equal(P('Logged in using an API key - sk-proj-***ABCDE', 'openai').kind, 'api');
+  assert.equal(P('Login method: Claude Max Account\nEmail: a@b.co', 'claude').kind, 'subscription'); assert.equal(P('Login method: Anthropic Console Account', 'claude').kind, 'api');
+  assert.equal(P('Logged in as me@example.com', 'cursor').kind, 'unknown');                                                  // no method stated
+  assert.equal(P('', 'claude').kind, 'unknown');
+  assert.equal(P('Logged in. You have an API key option and a Claude Pro subscription', 'claude').kind, 'unknown');           // both words → ambiguous, not guessed
+  process.env.FAKE_CLAUDE_AUTH = 'json'; let c = acc(await accounts(), 'claude');
+  assert.deepEqual([c.method.kind, c.method.account, c.signedIn], ['subscription', 'me@example.com', true]);
+  process.env.FAKE_CLAUDE_AUTH = 'console'; c = acc(await accounts(), 'claude'); assert.equal(c.method.kind, 'api');
+  process.env.FAKE_CLAUDE_AUTH = 'out'; c = acc(await accounts(), 'claude'); assert.equal(c.signedIn, false); assert.equal(c.method.label, 'Not signed in');
+  delete process.env.FAKE_CLAUDE_AUTH;
 });

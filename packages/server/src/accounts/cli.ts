@@ -58,6 +58,49 @@ export function runCli(file: string, args: string[], timeoutMs = 8000): CliRun {
   return { code: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim(), timedOut: r.error?.name === 'Error' && /ETIMEDOUT/.test(String((r.error as NodeJS.ErrnoException).code)) };
 }
 
+export interface SignInMethod {
+  /** subscription = your Claude/ChatGPT/Cursor plan; api = pay-per-use API key / Console credits; unknown = the CLI did not say */
+  kind: 'subscription' | 'api' | 'unknown';
+  label: string;            // one plain sentence: what you are signed in with
+  evidence: string;         // exactly what the CLI said that this is based on
+  account: string;          // email / account name when the CLI reports one
+  fields: { key: string; value: string }[];   // everything the CLI reported, as a table
+}
+const classify = (v: string): 'subscription' | 'api' | null => {
+  const sub = /claude\.?ai|chatgpt|subscription|\b(pro|max|plus|team|enterprise|free)\b|oauth|account login|cursor account|browser/i.test(v);
+  const api = /console|api[ _-]?key|apikey|\bapi\b|pay[- ]?as[- ]?you[- ]?go|bearer/i.test(v);
+  return sub && !api ? 'subscription' : api && !sub ? 'api' : null;
+};
+const pick = (o: Record<string, unknown>, names: string[]): string => { for (const n of names) { const k = Object.keys(o).find(x => x.toLowerCase().replace(/[_\-\s]/g, '') === n.toLowerCase().replace(/[_\-\s]/g, '')); if (k && o[k] !== null && o[k] !== undefined && o[k] !== '') return String(o[k]); } return ''; };
+
+/** Work out HOW you are signed in from what the CLI itself printed. JSON output is read field by field (key names are never searched for words);
+ *  plain text is only trusted for explicit wording. Anything else is reported as "unknown" — never guessed. */
+export function parseSignInMethod(text: string, provider: AccountId): SignInMethod {
+  const unknown = (fields: SignInMethod['fields'] = [], account = ''): SignInMethod => ({ kind: 'unknown', label: 'The CLI did not say how you are signed in', evidence: text ? 'its status output has no explicit sign-in method (shown below)' : 'it printed nothing', account, fields });
+  const t = text.trim(); if (!t) return unknown();
+  let obj: Record<string, unknown> | null = null;
+  const m = t.match(/\{[\s\S]*\}/); if (m) { try { const j = JSON.parse(m[0]); if (j && typeof j === 'object' && !Array.isArray(j)) obj = j as Record<string, unknown>; } catch { /* not JSON */ } }
+  if (obj) {
+    const flat: Record<string, unknown> = {}; const walk = (o: Record<string, unknown>, pre = '') => { for (const [k, v] of Object.entries(o)) { if (v && typeof v === 'object' && !Array.isArray(v)) walk(v as Record<string, unknown>, pre + k + '.'); else flat[pre + k] = v; } }; walk(obj);
+    const fields = Object.entries(flat).filter(([, v]) => v !== null && v !== undefined && v !== '').map(([key, v]) => ({ key, value: String(v) }));
+    const account = pick(flat, ['email', 'account', 'user', 'username']); const plan = pick(flat, ['subscriptionType', 'plan', 'subscription', 'tier']);
+    const method = pick(flat, ['authMethod', 'loginMethod', 'method', 'authType']); const keySource = pick(flat, ['apiKeySource']);
+    const kindFromMethod = method ? classify(method) : null;
+    if (kindFromMethod === 'subscription' || (!method && plan)) return { kind: 'subscription', label: `${provider === 'claude' ? 'Claude' : provider === 'openai' ? 'ChatGPT' : 'Cursor'} subscription${plan ? ` (${plan})` : ''}`, evidence: method ? `the CLI reported authMethod = "${method}"` : `the CLI reported a plan: "${plan}"`, account, fields };
+    if (kindFromMethod === 'api') return { kind: 'api', label: 'API key / Console billing (pay-per-use credits)', evidence: `the CLI reported authMethod = "${method}"`, account, fields };
+    if (!method && keySource && !/^(none|null|false)$/i.test(keySource)) return { kind: 'api', label: 'API key (pay-per-use credits)', evidence: `the CLI reported apiKeySource = "${keySource}"`, account, fields };
+    return unknown(fields, account);
+  }
+  const fields = t.split(/\r?\n/).map(l => l.match(/^\s*([A-Za-z][A-Za-z ._-]{1,30}):\s*(.+)$/)).filter((x): x is RegExpMatchArray => !!x).map(x => ({ key: x[1].trim(), value: x[2].trim() }));
+  const email = (t.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) ?? [''])[0];
+  const line = t.split(/\r?\n/).find(l => /(login|auth(entication)?|sign[- ]?in) method\s*:/i.test(l)) ?? t.split(/\r?\n/).find(l => /logged in (using|with|via)\b/i.test(l));
+  if (line) { const v = line.replace(/^.*?(method\s*:|logged in (using|with|via))/i, '').trim(); const k = classify(v); if (k) return { kind: k, label: k === 'subscription' ? `Subscription / account login (${v})` : `API key / Console billing (${v})`, evidence: `the CLI said: "${line.trim().slice(0, 120)}"`, account: email, fields }; }
+  const k = classify(t);
+  if (k === 'subscription' && /logged in|signed in/i.test(t)) return { kind: 'subscription', label: 'Subscription / account login', evidence: 'the CLI status mentions a subscription/account and no API key', account: email, fields };
+  if (k === 'api' && /logged in|signed in/i.test(t)) return { kind: 'api', label: 'API key / Console billing (pay-per-use credits)', evidence: 'the CLI status mentions an API key or Console and no subscription', account: email, fields };
+  return unknown(fields, email);
+}
+
 const NEGATIVE = /not (logged|signed)[ -]?in|logged out|signed out|no (active )?(session|account|credentials?|login)|unauthenticated|not authenticated|please (log|sign)[ -]?in|run .*login/i;
 export interface AccountStatus {
   id: AccountId; label: string; app: string; blurb: string; adapter: 'ready' | 'not-built';
@@ -67,21 +110,21 @@ export interface AccountStatus {
   /** true / false from the CLI's own status command, null = cannot tell. HEURISTIC: based on exit code and wording. */
   signedIn: boolean | null; statusText: string; how: string;
   loginCommand: string; logoutCommand: string; hint: string;
-  /** 'api' = the status text mentions Console/API-key billing, 'subscription' = mentions a subscription plan, null = cannot tell. HEURISTIC on the CLI's wording. */
-  billing: 'api' | 'subscription' | null;
+  /** How you are signed in, taken from the CLI's own status output (see parseSignInMethod). */
+  method: SignInMethod;
 }
 
 export function accountStatus(def: AccountDef): AccountStatus {
   const file = resolveBin(def);
   const base = { id: def.id, label: def.label, app: def.app, blurb: def.blurb, adapter: def.adapter, installHint: def.installHint };
   if (!file) return { ...base, installed: false, path: null, version: '', loginSupported: false, statusSupported: false, signedIn: null, statusText: '', how: 'not installed',
-    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, billing: null };
+    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
   const version = runCli(file, ['--version'], 6000).out.split(/\r?\n/)[0].slice(0, 80);
   const loginSupported = runCli(file, [...def.login, '--help'], 6000).code === 0;
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;
-  let signedIn: boolean | null = null; let statusText = ''; let how = 'unknown';
+  let signedIn: boolean | null = null; let statusText = ''; let statusFull = ''; let how = 'unknown';
   if (statusProbe) {
-    const s = runCli(file, def.status, 10_000); statusText = s.out.slice(0, 400);
+    const s = runCli(file, def.status, 10_000); statusText = s.out.slice(0, 1500); statusFull = s.out;
     signedIn = s.timedOut ? null : (s.code === 0 && !NEGATIVE.test(s.out)); how = s.timedOut ? 'status command timed out' : `from "${[def.bins[0], ...def.status].join(' ')}" (exit ${s.code}) — heuristic`;
   } else if (def.id === 'claude') {
     // Older Claude Code without `auth` subcommands: only a file-EXISTENCE check (contents are never read). macOS keeps it in the Keychain → unknown.
@@ -89,8 +132,9 @@ export function accountStatus(def: AccountDef): AccountStatus {
     if (existsSync(f)) { signedIn = true; how = 'credentials file exists (contents not read) — heuristic'; } else how = process.platform === 'darwin' ? 'credentials live in the macOS Keychain; cannot tell from here' : 'no credentials file found';
   }
   const loginCommand = loginSupported ? [def.bins[0], ...def.login].join(' ') : def.id === 'claude' ? 'claude' : [def.bins[0], ...def.login].join(' ');
-  const billing: AccountStatus['billing'] = /console|api[ _-]?key|api (usage|billing)|anthropic_api_key/i.test(statusText) ? 'api' : /subscription|\b(pro|max|plus|team)\b|claude\.ai|chatgpt/i.test(statusText) ? 'subscription' : null;
-  return { ...base, billing, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
+  const method: SignInMethod = signedIn === false ? { kind: 'unknown', label: 'Not signed in', evidence: statusText ? 'the CLI says you are not signed in' : '', account: '', fields: [] }
+    : signedIn === null && !statusFull ? { kind: 'unknown', label: 'Cannot tell — this CLI version has no status command', evidence: how, account: '', fields: [] } : parseSignInMethod(statusFull, def.id);
+  return { ...base, method, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
     logoutCommand: [def.bins[0], ...def.logout].join(' '),
     hint: loginSupported ? '' : def.id === 'claude' ? 'This Claude Code version has no "claude auth login". Run "claude" in a terminal and type /login.' : 'This CLI version did not recognise its login command — run it with --help to see how it signs in.' };
 }
