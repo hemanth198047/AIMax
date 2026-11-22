@@ -140,3 +140,14 @@ test('Cursor not installed: explains the desktop app is not scriptable, finds th
   } finally { process.env.PATH = oldPath; }
   assert.equal(acc(await accounts(), 'openai').installCommand, 'npm install -g @openai/codex');
 });
+
+test('Cursor CLI installed AFTER AImax started is found on the next check (no restart) and the card lists where it looked', { skip: !IS_POSIX }, async () => {
+  const { mkdtempSync: mk, writeFileSync: wf, chmodSync } = await import('node:fs');
+  const before = acc(await accounts(), 'cursor');
+  assert.equal(before.installed, false);
+  assert.ok(before.searched.names.includes('cursor-agent') && before.searched.dirs.length > 0);              // diagnostics for the "Where AImax looked" list
+  const dir = mk(join(tmpdir(), 'late-')); wf(join(dir, 'cursor-agent'), '#!/bin/sh\necho "2025.01.01-test"\n'); chmodSync(join(dir, 'cursor-agent'), 0o755);
+  const oldPath = process.env.PATH; process.env.PATH = `${oldPath}:${dir}`;
+  try { const c = acc(await accounts(), 'cursor'); assert.equal(c.installed, true); assert.equal(c.path, join(dir, 'cursor-agent')); }
+  finally { process.env.PATH = oldPath; }
+});

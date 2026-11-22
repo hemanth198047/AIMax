@@ -8,7 +8,7 @@
  * have them AImax says so and shows what to type instead. Nothing here has been run against the real CLIs.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { claudeChildEnv, resolveClaudeBin } from '../providers/claude.js';
@@ -41,11 +41,40 @@ export const ACCOUNTS: AccountDef[] = [
 
 const quote = (a: string) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
 
+/** Windows: the PATH a NEW terminal would have (user + machine), read from the registry, so a CLI installed after AImax started is found without a restart. */
+function freshWindowsPath(): string[] {
+  if (!WIN) return [];
+  const out: string[] = [];
+  for (const key of ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment']) {
+    try {
+      const r = spawnSync('reg', ['query', key, '/v', 'Path'], { encoding: 'utf8', timeout: 4000, windowsHide: true });
+      const m = /Path\s+REG_(?:EXPAND_)?SZ\s+(.*)/i.exec(r.stdout ?? '');
+      if (m) out.push(...m[1].trim().split(';').filter(Boolean).map((d) => d.replace(/%([^%]+)%/g, (_x, v) => process.env[v] ?? `%${v}%`)));
+    } catch { /* ignore */ }
+  }
+  return out;
+}
+/** Every folder AImax looks in for a CLI, in order. Shown to the user when something is "not installed". */
+export function searchDirs(): string[] {
+  const la = process.env.LOCALAPPDATA;
+  const extra = [join(homedir(), '.local', 'bin'), ...(WIN && la ? [join(la, 'cursor-agent'), join(la, 'Programs', 'cursor-agent'), join(la, 'Programs', 'cursor', 'resources', 'app', 'bin')] : [])];
+  const dirs = [...(process.env.PATH ?? '').split(delimiter).filter(Boolean), ...freshWindowsPath(), ...extra];
+  return [...new Set(dirs)];
+}
 function findOnPath(name: string): string | null {
-  const exts = WIN ? ['.exe', '.cmd', '.bat', ''] : [''];
+  const exts = WIN ? ['.exe', '.cmd', '.bat', '.ps1', ''] : [''];
   if (name.includes('/') || name.includes('\\')) return existsSync(name) ? name : null;
-  const extra = [join(homedir(), '.local', 'bin'), ...(WIN && process.env.LOCALAPPDATA ? [join(process.env.LOCALAPPDATA, 'cursor-agent'), join(process.env.LOCALAPPDATA, 'Programs', 'cursor-agent')] : [])];
-  for (const d of [...(process.env.PATH ?? '').split(delimiter).filter(Boolean), ...extra]) for (const e of exts) { const p = join(d, name + e); if (existsSync(p)) return p; }
+  for (const d of searchDirs()) for (const e of exts) {
+    const p = join(d, name + e);
+    if (existsSync(p) && !(WIN && e === '.ps1')) return p;
+  }
+  // Cursor's Windows installer keeps versioned builds under <dir>\versions\<ver>\ — use the newest if no shim exists.
+  if (WIN && process.env.LOCALAPPDATA) {
+    const vdir = join(process.env.LOCALAPPDATA, 'cursor-agent', 'versions');
+    try {
+      for (const v of readdirSync(vdir).sort().reverse()) for (const e of ['.exe', '.cmd']) { const p = join(vdir, v, name + e); if (existsSync(p)) return p; }
+    } catch { /* none */ }
+  }
   return null;
 }
 export function resolveBin(def: AccountDef): string | null {
@@ -124,14 +153,14 @@ export interface AccountStatus {
   /** What Claude itself reported at the start of the last real chat run through AImax (ground truth, independent of the status command). */
   lastRun: { apiKeySource: string; at: string } | null;
   /** Not-installed help: the official installer command + docs, and (Cursor) whether the desktop app was found. */
-  installCommand: string | null; installDoc: string | null; desktopApp: string | null;
+  installCommand: string | null; installDoc: string | null; desktopApp: string | null; searched?: { names: string[]; dirs: string[] };
 }
 
 export function accountStatus(def: AccountDef): AccountStatus {
   const file = resolveBin(def);
   const base = { id: def.id, label: def.label, app: def.app, blurb: def.blurb, adapter: def.adapter, installHint: def.installHint };
   if (!file) return { ...base, installed: false, path: null, version: '', loginSupported: false, statusSupported: false, signedIn: null, statusText: '', how: 'not installed',
-    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, lastRun: null, installCommand: installCommandFor(def), installDoc: def.install?.doc ?? null, desktopApp: def.id === 'cursor' ? findCursorApp() : null, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
+    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, lastRun: null, installCommand: installCommandFor(def), installDoc: def.install?.doc ?? null, desktopApp: def.id === 'cursor' ? findCursorApp() : null, searched: { names: def.bins, dirs: searchDirs() }, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
   const version = runCli(file, ['--version'], 6000).out.split(/\r?\n/)[0].slice(0, 80);
   const loginSupported = runCli(file, [...def.login, '--help'], 6000).code === 0;
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;

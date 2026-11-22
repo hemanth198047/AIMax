@@ -5,7 +5,7 @@ import { apiFetch } from '../api/client';
 interface Account {
   id: 'claude' | 'cursor' | 'openai'; label: string; app: string; blurb: string; adapter: 'ready' | 'not-built';
   installed: boolean; path: string | null; version: string; installHint: string; loginSupported: boolean; statusSupported: boolean;
-  signedIn: boolean | null; statusText: string; how: string; method: Method; lastRun: { apiKeySource: string; at: string } | null; installCommand: string | null; installDoc: string | null; desktopApp: string | null; loginCommand: string; logoutCommand: string; hint: string;
+  signedIn: boolean | null; statusText: string; how: string; method: Method; lastRun: { apiKeySource: string; at: string } | null; installCommand: string | null; installDoc: string | null; desktopApp: string | null; searched?: { names: string[]; dirs: string[] }; loginCommand: string; logoutCommand: string; hint: string;
 }
 interface Method { kind: 'subscription' | 'api' | 'unknown'; label: string; evidence: string; account: string; override?: string; fields: { key: string; value: string }[] }
 interface Accounts { accounts: Account[]; warnings: string[]; apiKeyFix: string; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
@@ -19,7 +19,7 @@ const FIX: Record<Account['id'], string> = {
 };
 
 /** Shown when a service's command-line tool is missing: why it is needed, the official installer, and what to do afterwards. */
-function NotInstalled({ a, onInstall, copy }: { a: Account; onInstall: () => void; copy: (t: string) => void }) {
+function NotInstalled({ a, onInstall, copy, recheck }: { a: Account; onInstall: () => void; copy: (t: string) => void; recheck: () => void }) {
   return (
     <div className="border border-slate-700 rounded p-3 space-y-2 bg-slate-950/40" data-testid={`install-${a.id}`}>
       {a.id === 'cursor' && (
@@ -38,8 +38,16 @@ function NotInstalled({ a, onInstall, copy }: { a: Account; onInstall: () => voi
             <button onClick={onInstall} data-testid={`install-btn-${a.id}`} className="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-500">Open a terminal and install</button>
             {a.installDoc && <a href={a.installDoc} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">Official instructions</a>}
           </div>
-          <div className="text-slate-500">After it finishes: close that window, then <b>restart AImax</b> (Ctrl+C, then <code>.\aimax.ps1</code>) so it sees the new tool, open Settings and click <b>Sign in</b>.</div>
+          <div className="text-slate-500">After it finishes, click <b>Re-check</b> below — AImax re-reads your computer's PATH, so no restart is needed.</div>
         </>
+      )}
+      <div className="flex items-center gap-2"><button onClick={recheck} data-testid={`recheck-${a.id}`} className="px-3 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800">Re-check</button></div>
+      {a.searched && (
+        <details className="text-slate-500" data-testid={`searched-${a.id}`}>
+          <summary className="cursor-pointer">Where AImax looked (for names: {a.searched.names.join(', ')})</summary>
+          <ul className="mt-1 max-h-40 overflow-auto font-mono break-all">{a.searched.dirs.map((d) => <li key={d}>{d}</li>)}</ul>
+          <div className="mt-1">Still failing? In PowerShell run <code>where.exe agent</code>, <code>where.exe cursor-agent</code> and <code>dir $env:LOCALAPPDATA\cursor-agent</code>.</div>
+        </details>
       )}
     </div>
   );
@@ -155,7 +163,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                   {a.adapter === 'not-built' && <div className="text-yellow-500">Sign-in only: AImax cannot use this account for chat yet.</div>}
                   {a.installed
                     ? <div className="text-slate-600">{a.version || 'installed'} · {a.path}</div>
-                    : <NotInstalled a={a} onInstall={() => void act(a.id, 'install')} copy={copy} />}
+                    : <NotInstalled a={a} onInstall={() => void act(a.id, 'install')} copy={copy} recheck={() => void load()} />}
                   {a.installed && <MethodBox a={a} />}
                   {a.hint && a.installed && <div className="text-yellow-500">{a.hint}</div>}
                   {a.installed && (
