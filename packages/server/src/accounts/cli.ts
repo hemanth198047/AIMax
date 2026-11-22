@@ -67,13 +67,15 @@ export interface AccountStatus {
   /** true / false from the CLI's own status command, null = cannot tell. HEURISTIC: based on exit code and wording. */
   signedIn: boolean | null; statusText: string; how: string;
   loginCommand: string; logoutCommand: string; hint: string;
+  /** 'api' = the status text mentions Console/API-key billing, 'subscription' = mentions a subscription plan, null = cannot tell. HEURISTIC on the CLI's wording. */
+  billing: 'api' | 'subscription' | null;
 }
 
 export function accountStatus(def: AccountDef): AccountStatus {
   const file = resolveBin(def);
   const base = { id: def.id, label: def.label, app: def.app, blurb: def.blurb, adapter: def.adapter, installHint: def.installHint };
   if (!file) return { ...base, installed: false, path: null, version: '', loginSupported: false, statusSupported: false, signedIn: null, statusText: '', how: 'not installed',
-    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint };
+    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, billing: null };
   const version = runCli(file, ['--version'], 6000).out.split(/\r?\n/)[0].slice(0, 80);
   const loginSupported = runCli(file, [...def.login, '--help'], 6000).code === 0;
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;
@@ -87,7 +89,8 @@ export function accountStatus(def: AccountDef): AccountStatus {
     if (existsSync(f)) { signedIn = true; how = 'credentials file exists (contents not read) — heuristic'; } else how = process.platform === 'darwin' ? 'credentials live in the macOS Keychain; cannot tell from here' : 'no credentials file found';
   }
   const loginCommand = loginSupported ? [def.bins[0], ...def.login].join(' ') : def.id === 'claude' ? 'claude' : [def.bins[0], ...def.login].join(' ');
-  return { ...base, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
+  const billing: AccountStatus['billing'] = /console|api[ _-]?key|api (usage|billing)|anthropic_api_key/i.test(statusText) ? 'api' : /subscription|\b(pro|max|plus|team)\b|claude\.ai|chatgpt/i.test(statusText) ? 'subscription' : null;
+  return { ...base, billing, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
     logoutCommand: [def.bins[0], ...def.logout].join(' '),
     hint: loginSupported ? '' : def.id === 'claude' ? 'This Claude Code version has no "claude auth login". Run "claude" in a terminal and type /login.' : 'This CLI version did not recognise its login command — run it with --help to see how it signs in.' };
 }

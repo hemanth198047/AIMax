@@ -40,6 +40,15 @@ export function buildClaudeArgs(opts: { systemFile: string; sessionId?: string |
     ...(opts.sessionId ? ['--resume', opts.sessionId] : [])];
 }
 
+/** Claude Code says this only when it is signed in with an API / Console account (pay-per-use credits) instead of a Pro/Max subscription. */
+export function explainClaudeError(msg: string): string {
+  if (/credit balance (is )?too low|insufficient (credit|funds)|billing/i.test(msg) && /credit|balance/i.test(msg))
+    return `Claude Code is using API billing, not your Pro/Max subscription ("${msg.slice(0, 120)}"). In AImax: Settings → Claude → Sign out, then Sign in and choose "Claude account with subscription" (not "Anthropic Console account"). An ANTHROPIC_API_KEY set on this computer causes the same thing; AImax ignores it, but a login made with an API key still bills the API.`;
+  if (/invalid api key|not logged in|please run .*login|authentication_error|oauth token has expired|401/i.test(msg))
+    return `Claude is not signed in (or the login expired). Open Settings → Claude → Sign in. (${msg.slice(0, 120)})`;
+  return msg;
+}
+
 function formatHistory(messages: ChatMessage[]): string {
   const last = messages[messages.length - 1];
   const history = messages.slice(0, -1);
@@ -120,11 +129,11 @@ export async function claudeChat(messages: ChatMessage[], system: string, onChun
     const r = await runOnce(last.content, system, opts.sessionId, onChunk, opts.signal);
     if (!r.error) return { text: r.text, sessionId: r.sessionId, resumed: true, usage: r.usage };
     if (r.error === 'aborted') return { text: r.text, sessionId: r.sessionId, resumed: true, usage: r.usage };
-    if (r.text) throw new Error(r.error);                       // partial output already streamed: do not duplicate
+    if (r.text) throw new Error(explainClaudeError(r.error));                       // partial output already streamed: do not duplicate
     // fall through: session could not be resumed → fresh run with full history
   }
   const r = await runOnce(formatHistory(messages), system, null, onChunk, opts.signal);
-  if (r.error && r.error !== 'aborted') throw new Error(r.error);
+  if (r.error && r.error !== 'aborted') throw new Error(explainClaudeError(r.error));
   return { text: r.text, sessionId: r.sessionId, resumed: false, usage: r.usage };
 }
 

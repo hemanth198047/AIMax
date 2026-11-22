@@ -5,7 +5,7 @@ import { apiFetch } from '../api/client';
 interface Account {
   id: 'claude' | 'cursor' | 'openai'; label: string; app: string; blurb: string; adapter: 'ready' | 'not-built';
   installed: boolean; path: string | null; version: string; installHint: string; loginSupported: boolean; statusSupported: boolean;
-  signedIn: boolean | null; statusText: string; how: string; loginCommand: string; logoutCommand: string; hint: string;
+  signedIn: boolean | null; statusText: string; how: string; billing: 'api' | 'subscription' | null; loginCommand: string; logoutCommand: string; hint: string;
 }
 interface Accounts { accounts: Account[]; warnings: string[]; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
 interface OpenResult { opened: boolean; command: string; note: string }
@@ -70,6 +70,8 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                     : <div className="text-slate-400">{a.installHint}</div>}
                   {a.installed && a.statusText && <pre className="bg-slate-950 rounded p-2 text-slate-400 whitespace-pre-wrap max-h-24 overflow-y-auto">{a.statusText}</pre>}
                   {a.installed && <div className="text-slate-600">How this was determined: {a.how}</div>}
+                  {a.billing === 'api' && <div className="border-l-2 border-red-500 pl-2 text-red-300" data-testid={`billing-${a.id}`}>This login looks like API / Console billing, not your subscription — that is what causes "credit balance too low". Click Sign out, then Sign in and choose the account <b>with subscription</b> (Claude Pro/Max), not "Console".</div>}
+                  {a.billing === 'subscription' && <div className="text-emerald-500" data-testid={`billing-${a.id}`}>Looks like a subscription login (based on the CLI's wording).</div>}
                   {a.hint && <div className="text-yellow-500">{a.hint}</div>}
                   {a.installed && (
                     <div className="flex flex-wrap items-center gap-2">

@@ -61,7 +61,7 @@ export function tokensSince(provider: string, ms: number, now = new Date()): num
 }
 
 export function looksRateLimited(msg: string): boolean {
-  return /rate.?limit|usage limit|limit reached|too many requests|\b429\b|quota|overloaded|credit balance/i.test(msg);
+  return /rate.?limit|usage limit|limit reached|too many requests|\b429\b|quota|overloaded/i.test(msg);
 }
 export function setCooldown(provider: string, minutes: number, reason: string, now = new Date()): void {
   setSetting(`cooldown:${provider}`, { until: new Date(now.getTime() + minutes * 60_000).toISOString(), reason: reason.slice(0, 200) });

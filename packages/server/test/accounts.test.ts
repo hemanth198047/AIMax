@@ -26,7 +26,7 @@ test('accounts: Claude is detected, signed-in state comes from the CLI itself; m
   process.env.FAKE_CLAUDE_AUTH = 'in';
   let b = await accounts(); let c = acc(b, 'claude');
   assert.deepEqual([c.installed, c.loginSupported, c.statusSupported, c.signedIn, c.adapter], [true, true, true, true, 'ready']);
-  assert.match(c.statusText, /Logged in/); assert.match(c.how, /heuristic/); assert.equal(c.version, '0.0.0-fake');
+  assert.match(c.statusText, /Logged in/); assert.equal(c.billing, 'subscription'); assert.match(c.how, /heuristic/); assert.equal(c.version, '0.0.0-fake');
   process.env.FAKE_CLAUDE_AUTH = 'out'; c = acc(await accounts(), 'claude'); assert.equal(c.signedIn, false); assert.match(c.statusText, /Not logged in/);
   process.env.FAKE_CLAUDE_AUTH = 'none'; c = acc(await accounts(), 'claude');
   assert.deepEqual([c.installed, c.loginSupported, c.signedIn], [true, false, null]); assert.match(c.hint, /\/login/); assert.equal(c.loginCommand, 'claude');
@@ -59,4 +59,15 @@ test('API keys in the environment are NOT passed to Claude (so the subscription 
   await autoChat({ messages: [{ role: 'user', content: 'hi' }], system: 's', provider: 'claude' }, () => undefined);
   assert.equal(JSON.parse(readFileSync(LOG, 'utf8').trim().split('\n').at(-1)!).hasApiKey, true);          // explicit opt-in works
   delete process.env.AIMAX_ALLOW_API_KEY; delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN;
+});
+
+test('"credit balance too low" is explained (API billing, not subscription) and does not pause Claude for an hour', async () => {
+  const { explainClaudeError } = await import('../src/providers/claude.js');
+  const { looksRateLimited } = await import('../src/providers/usage.js');
+  const m = explainClaudeError('Credit balance is too low');
+  assert.match(m, /API billing, not your Pro\/Max subscription/); assert.match(m, /Sign out, then Sign in/); assert.match(m, /Credit balance is too low/);
+  assert.equal(looksRateLimited('Credit balance is too low'), false);
+  assert.match(explainClaudeError('Invalid API key · Please run /login'), /not signed in/);
+  assert.equal(explainClaudeError('some other failure'), 'some other failure');
+  assert.equal(looksRateLimited('Claude usage limit reached'), true);                       // real limits still pause
 });
