@@ -434,6 +434,7 @@ test('settings opens; accounts show real CLI state; sign-in opens a terminal wit
   await expect(page.getByTestId('account-claude-state')).toHaveText('Subscription');
   await expect(page.getByTestId('method-claude')).toContainText('Signed in with your SUBSCRIPTION');
   await expect(page.getByTestId('method-claude')).toContainText('Based on:');
+  await expect(page.getByTestId('lastrun-claude')).toContainText('apiKeySource = none');
   await expect(page.getByTestId('account-cursor-state')).toHaveText('Not installed');
   await expect(page.getByTestId('account-openai')).toContainText('npm install -g @openai/codex');
   await expect(page.getByTestId('account-cursor')).not.toContainText('Sign in');

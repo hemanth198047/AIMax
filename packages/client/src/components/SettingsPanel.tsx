@@ -5,7 +5,7 @@ import { apiFetch } from '../api/client';
 interface Account {
   id: 'claude' | 'cursor' | 'openai'; label: string; app: string; blurb: string; adapter: 'ready' | 'not-built';
   installed: boolean; path: string | null; version: string; installHint: string; loginSupported: boolean; statusSupported: boolean;
-  signedIn: boolean | null; statusText: string; how: string; method: Method; loginCommand: string; logoutCommand: string; hint: string;
+  signedIn: boolean | null; statusText: string; how: string; method: Method; lastRun: { apiKeySource: string; at: string } | null; loginCommand: string; logoutCommand: string; hint: string;
 }
 interface Method { kind: 'subscription' | 'api' | 'unknown'; label: string; evidence: string; account: string; fields: { key: string; value: string }[] }
 interface Accounts { accounts: Account[]; warnings: string[]; info: { dataDir: string; platform: string; node: string; claudeBin: string | null } }
@@ -23,7 +23,7 @@ function MethodBox({ a }: { a: Account }) {
   const m = a.method;
   const out = a.signedIn === false;
   const tone = out ? 'border-slate-600 bg-slate-800/60' : m.kind === 'subscription' ? 'border-emerald-600 bg-emerald-950/40' : m.kind === 'api' ? 'border-red-600 bg-red-950/40' : 'border-yellow-600 bg-yellow-950/30';
-  const details = `${a.label}\nSigned in: ${a.signedIn}\nMethod: ${m.kind} — ${m.label}\nBased on: ${m.evidence}\n--- CLI output ---\n${a.statusText}`;
+  const details = `${a.lastRun ? `Last run apiKeySource: ${a.lastRun.apiKeySource}\n` : ''}${a.label}\nSigned in: ${a.signedIn}\nMethod: ${m.kind} — ${m.label}\nBased on: ${m.evidence}\n--- CLI output ---\n${a.statusText}`;
   return (
     <div className={`border-l-4 rounded p-3 space-y-1 ${tone}`} data-testid={`method-${a.id}`} data-kind={out ? 'signed-out' : m.kind}>
       {out && <div className="text-sm font-semibold text-slate-200">Not signed in</div>}
@@ -44,6 +44,12 @@ function MethodBox({ a }: { a: Account }) {
       </>}
       {out && <div className="text-slate-400">Click Sign in below.</div>}
       {m.evidence && !out && <div className="text-slate-500">Based on: {m.evidence}</div>}
+      {a.lastRun && (
+        <div className="text-slate-400" data-testid={`lastrun-${a.id}`}>
+          Last chat through AImax ({new Date(a.lastRun.at).toLocaleString()}): Claude itself reported <code className="text-slate-200">apiKeySource = {a.lastRun.apiKeySource}</code>
+          {a.lastRun.apiKeySource === 'none' ? ' — no API key was used for that chat.' : ' — an API key was used for that chat, not a subscription login.'}
+        </div>
+      )}
       <details className="text-slate-500">
         <summary className="cursor-pointer hover:text-slate-300">What the tool reported</summary>
         {m.fields.length > 0 && <table className="mt-1 w-full"><tbody>{m.fields.map(f => <tr key={f.key} className="border-t border-slate-800"><td className="pr-3 py-0.5 text-slate-500 whitespace-nowrap">{f.key}</td><td className="text-slate-300 break-all">{f.value}</td></tr>)}</tbody></table>}

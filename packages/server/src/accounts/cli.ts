@@ -12,6 +12,7 @@ import { appendFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { resolveClaudeBin } from '../providers/claude.js';
+import { getSetting } from '../providers/usage.js';
 
 const WIN = process.platform === 'win32';
 
@@ -67,8 +68,8 @@ export interface SignInMethod {
   fields: { key: string; value: string }[];   // everything the CLI reported, as a table
 }
 const classify = (v: string): 'subscription' | 'api' | null => {
-  const sub = /claude\.?ai|chatgpt|subscription|\b(pro|max|plus|team|enterprise|free)\b|oauth|account login|cursor account|browser/i.test(v);
-  const api = /console|api[ _-]?key|apikey|\bapi\b|pay[- ]?as[- ]?you[- ]?go|bearer/i.test(v);
+  const sub = /claude[ _.-]?ai|chatgpt|subscription|\b(pro|max|plus|team|enterprise|free)\b|oauth|account login|cursor account/i.test(v);
+  const api = /console|api[ _-]?key|apikey|pay[- ]?as[- ]?you[- ]?go/i.test(v);   // never the bare word "api": "API provider: Anthropic" says nothing about billing
   return sub && !api ? 'subscription' : api && !sub ? 'api' : null;
 };
 const pick = (o: Record<string, unknown>, names: string[]): string => { for (const n of names) { const k = Object.keys(o).find(x => x.toLowerCase().replace(/[_\-\s]/g, '') === n.toLowerCase().replace(/[_\-\s]/g, '')); if (k && o[k] !== null && o[k] !== undefined && o[k] !== '') return String(o[k]); } return ''; };
@@ -112,13 +113,15 @@ export interface AccountStatus {
   loginCommand: string; logoutCommand: string; hint: string;
   /** How you are signed in, taken from the CLI's own status output (see parseSignInMethod). */
   method: SignInMethod;
+  /** What Claude itself reported at the start of the last real chat run through AImax (ground truth, independent of the status command). */
+  lastRun: { apiKeySource: string; at: string } | null;
 }
 
 export function accountStatus(def: AccountDef): AccountStatus {
   const file = resolveBin(def);
   const base = { id: def.id, label: def.label, app: def.app, blurb: def.blurb, adapter: def.adapter, installHint: def.installHint };
   if (!file) return { ...base, installed: false, path: null, version: '', loginSupported: false, statusSupported: false, signedIn: null, statusText: '', how: 'not installed',
-    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
+    loginCommand: [def.bins[0], ...def.login].join(' '), logoutCommand: [def.bins[0], ...def.logout].join(' '), hint: def.installHint, lastRun: null, method: { kind: 'unknown', label: 'Not installed', evidence: '', account: '', fields: [] } };
   const version = runCli(file, ['--version'], 6000).out.split(/\r?\n/)[0].slice(0, 80);
   const loginSupported = runCli(file, [...def.login, '--help'], 6000).code === 0;
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;
@@ -134,7 +137,8 @@ export function accountStatus(def: AccountDef): AccountStatus {
   const loginCommand = loginSupported ? [def.bins[0], ...def.login].join(' ') : def.id === 'claude' ? 'claude' : [def.bins[0], ...def.login].join(' ');
   const method: SignInMethod = signedIn === false ? { kind: 'unknown', label: 'Not signed in', evidence: statusText ? 'the CLI says you are not signed in' : '', account: '', fields: [] }
     : signedIn === null && !statusFull ? { kind: 'unknown', label: 'Cannot tell — this CLI version has no status command', evidence: how, account: '', fields: [] } : parseSignInMethod(statusFull, def.id);
-  return { ...base, method, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
+  const lastRun = def.id === 'claude' ? getSetting<{ apiKeySource: string; at: string } | null>('claude:last_run', null) : null;
+  return { ...base, method, lastRun, installed: true, path: file, version, loginSupported, statusSupported: statusProbe, signedIn, statusText, how, loginCommand,
     logoutCommand: [def.bins[0], ...def.logout].join(' '),
     hint: loginSupported ? '' : def.id === 'claude' ? 'This Claude Code version has no "claude auth login". Run "claude" in a terminal and type /login.' : 'This CLI version did not recognise its login command — run it with --help to see how it signs in.' };
 }

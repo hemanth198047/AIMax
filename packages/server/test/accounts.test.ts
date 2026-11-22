@@ -92,3 +92,17 @@ test('sign-in method is read from the CLI\'s own fields — key NAMES like apiKe
   process.env.FAKE_CLAUDE_AUTH = 'out'; c = acc(await accounts(), 'claude'); assert.equal(c.signedIn, false); assert.equal(c.method.label, 'Not signed in');
   delete process.env.FAKE_CLAUDE_AUTH;
 });
+
+test('no false "API" verdicts from words like "API provider"; the last real run\'s apiKeySource is remembered and shown', async () => {
+  const { parseSignInMethod: P } = await import('../src/accounts/cli.js');
+  assert.equal(P('Logged in\nAPI provider: Anthropic\nPlan: Claude Max', 'claude').kind, 'subscription');
+  assert.equal(P('Logged in. API provider: Anthropic', 'claude').kind, 'unknown');
+  assert.equal(P(JSON.stringify({ loggedIn: true, authMethod: 'claude_ai', apiProvider: 'firstParty' }), 'claude').kind, 'subscription');
+  assert.equal(P(JSON.stringify({ loggedIn: true, authMethod: 'oauth_token' }), 'claude').kind, 'subscription');
+  _resetClaudeCache(); process.env.FAKE_CLAUDE_KEYSRC = 'none';
+  await autoChat({ messages: [{ role: 'user', content: 'hi' }], system: 's', provider: 'claude' }, () => undefined);
+  let r = acc(await accounts(), 'claude').lastRun; assert.equal(r.apiKeySource, 'none'); assert.ok(Date.now() - Date.parse(r.at) < 60_000);
+  process.env.FAKE_CLAUDE_KEYSRC = '/login managed key';
+  await autoChat({ messages: [{ role: 'user', content: 'again' }], system: 's', provider: 'claude' }, () => undefined);
+  assert.equal(acc(await accounts(), 'claude').lastRun.apiKeySource, '/login managed key'); delete process.env.FAKE_CLAUDE_KEYSRC;
+});

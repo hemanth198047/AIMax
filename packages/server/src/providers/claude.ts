@@ -1,3 +1,4 @@
+import { setSetting } from './usage.js';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -93,6 +94,8 @@ function runOnce(prompt: string, system: string, sessionId: string | null, onChu
     const handle = (line: string) => {
       let ev: any; try { ev = JSON.parse(line); } catch { return; }
       if (ev.session_id && typeof ev.session_id === 'string') session = ev.session_id;
+      // The first event of a run says which credential Claude is using. Remember it: it is the only answer that comes from a real run, not a status command.
+      if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.apiKeySource === 'string') { try { setSetting('claude:last_run', { apiKeySource: ev.apiKeySource, at: new Date().toISOString() }); } catch { /* ledger unavailable */ } }
       if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta' && ev.event.delta?.type === 'text_delta') {
         sawDelta = true; text += ev.event.delta.text; onChunk(ev.event.delta.text);
       } else if (ev.type === 'assistant' && !sawDelta) {

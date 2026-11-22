@@ -26,7 +26,7 @@ process.stdin.on('end', async () => {
   if (mode === 'ratelimit') { process.stderr.write('Claude usage limit reached. Your limit will reset at 5pm.'); process.exit(1); }
   if (mode === 'bad-exit') { process.stderr.write('boom'); process.exit(2); }
   if (mode === 'fail-resume' && resume) { out({ type: 'result', subtype: 'error', is_error: true, result: 'No conversation found with session ID ' + resume, session_id: resume }); process.exit(1); }
-  out({ type: 'system', subtype: 'init', session_id: sid });
+  out({ type: 'system', subtype: 'init', session_id: sid, apiKeySource: process.env.FAKE_CLAUDE_KEYSRC || 'none' });
   if (mode === 'agent') {
     const { writeFileSync, appendFileSync: ap } = await import('node:fs');
     out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: 'agent-made.txt' } }] }, session_id: sid });
