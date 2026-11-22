@@ -1,10 +1,28 @@
 import type { FastifyInstance } from 'fastify';
 import { ACCOUNTS, accountStatus, installCommandFor, openTerminal, resolveBin, type AccountId } from '../accounts/cli.js';
-import { DATA_DIR } from '../db/index.js';
+import { DATA_DIR, getDb } from '../db/index.js';
+import Database from 'better-sqlite3';
+import { existsSync } from 'node:fs';
+import { checkOllamaAvailable, listOllamaModels } from '../providers/ollama.js';
+import { getSetting } from '../providers/usage.js';
+import { linkVaultPath } from './linkvault.js';
 
 const quote = (a: string) => (/[\s"]/.test(a) ? `"${a}"` : a);
 
 export async function accountsRoutes(app: FastifyInstance) {
+  /** Ollama and LinkVault: are they reachable, and does AImax actually use them? */
+  app.get('/api/connections', async () => {
+    const up = await checkOllamaAvailable(); const models = up ? await listOllamaModels() : []; const chosen = getSetting<string>('ollama_model', '');
+    const n = (getDb().prepare("SELECT COUNT(*) n, MAX(ts) last FROM usage_events WHERE provider='ollama' AND ok=1").get() as { n: number; last: string | null });
+    const lvPath = linkVaultPath(); let lv: { found: boolean; path: string; links: number | null; error: string } = { found: existsSync(lvPath), path: lvPath, links: null, error: '' };
+    if (lv.found) { try { const d = new Database(lvPath, { readonly: true }); try { lv.links = (d.prepare('SELECT COUNT(*) n FROM links').get() as { n: number }).n; } finally { d.close(); } } catch (e) { lv.error = e instanceof Error ? e.message : String(e); } }
+    return {
+      ollama: { running: up, url: process.env.OLLAMA_HOST || 'http://localhost:11434', models: models.map(m => m.name), selected: models.some(m => m.name === chosen) ? chosen : (models[0]?.name ?? ''), successfulChats: n.n, lastUsed: n.last,
+        note: up ? (n.n ? 'Connected and used for chats.' : 'Connected, but no chat has used it yet — pick Ollama in the model picker.') : 'Not reachable. Start it with "ollama serve" (AImax starts it for you when launched with aimax.ps1).' },
+      linkvault: { ...lv, usedByChat: false, note: lv.found && !lv.error ? 'Connected (read-only). It feeds the Link Vault panel only — chats do not read it yet.' : lv.found ? 'File found but unreadable.' : 'Database file not found. Set AIMAX_LINKVAULT_DB to its full path and restart.' },
+    };
+  });
+
   /** Status of each subscription CLI. Runs the CLIs' own read-only status commands; never reads credentials. */
   app.get('/api/accounts', async () => {
     const accounts = ACCOUNTS.map(accountStatus);

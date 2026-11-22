@@ -165,9 +165,13 @@ export function accountStatus(def: AccountDef): AccountStatus {
   const loginSupported = runCli(file, [...def.login, '--help'], 6000).code === 0;
   const statusProbe = loginSupported ? runCli(file, [...def.status, '--help'], 6000).code === 0 : false;
   let signedIn: boolean | null = null; let statusText = ''; let statusFull = ''; let how = 'unknown';
-  if (statusProbe) {
-    const s = runCli(file, def.status, 10_000, def.id === 'claude' ? claudeChildEnv() : undefined); statusText = s.out.slice(0, 1500); statusFull = s.out;
-    signedIn = s.timedOut ? null : (s.code === 0 && !NEGATIVE.test(s.out)); how = s.timedOut ? 'status command timed out' : `from "${[def.bins[0], ...def.status].join(' ')}" (exit ${s.code}) — heuristic`;
+  // `--help` probes can fail or hang on some CLIs (Cursor's did), so for non-Claude CLIs also try the status command itself and fall back to `whoami`.
+  const candidates: string[][] = statusProbe ? [def.status] : def.id === 'claude' ? [] : def.id === 'cursor' ? [def.status, ['whoami']] : [def.status];
+  let ran: { out: string; code: number | null; timedOut?: boolean } | null = null; let ranArgs = def.status;
+  for (const c of candidates) { const r = runCli(file, c, 15_000, def.id === 'claude' ? claudeChildEnv() : undefined); if (r.out.trim() || r.code === 0) { ran = r; ranArgs = c; break; } }
+  if (ran) {
+    const s = ran; statusText = s.out.slice(0, 1500); statusFull = s.out;
+    signedIn = s.timedOut ? null : (s.code === 0 && !NEGATIVE.test(s.out)); how = s.timedOut ? 'status command timed out' : `from "${[def.bins[0], ...ranArgs].join(' ')}" (exit ${s.code}) — heuristic`;
   } else if (def.id === 'claude') {
     // Older Claude Code without `auth` subcommands: only a file-EXISTENCE check (contents are never read). macOS keeps it in the Keychain → unknown.
     const f = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), '.credentials.json');

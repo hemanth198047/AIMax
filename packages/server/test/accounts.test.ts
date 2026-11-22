@@ -151,3 +151,17 @@ test('Cursor CLI installed AFTER AImax started is found on the next check (no re
   try { const c = acc(await accounts(), 'cursor'); assert.equal(c.installed, true); assert.equal(c.path, join(dir, 'cursor-agent')); }
   finally { process.env.PATH = oldPath; }
 });
+
+test('Cursor whose --help probes fail is still checked with the real status command (no more "?")', { skip: !IS_POSIX }, async () => {
+  const { mkdtempSync: mk, writeFileSync: wf, chmodSync } = await import('node:fs');
+  const dir = mk(join(tmpdir(), 'cur-')); wf(join(dir, 'cursor-agent'), '#!/bin/sh\ncase "$*" in *--help*) exit 1;; "--version") echo 1.2.3;; status) echo "Logged in as me@example.com";; *) exit 1;; esac\n'); chmodSync(join(dir, 'cursor-agent'), 0o755);
+  const oldPath = process.env.PATH; process.env.PATH = `${oldPath}:${dir}`;
+  try { const c = acc(await accounts(), 'cursor'); assert.equal(c.installed, true); assert.equal(c.signedIn, true); assert.match(c.statusText, /me@example\.com/); }
+  finally { process.env.PATH = oldPath; }
+});
+
+test('connections: Ollama and Link Vault state are reported honestly', async () => {
+  process.env.AIMAX_LINKVAULT_DB = join(tmpdir(), 'nope-linkvault.db');
+  const r = await app.inject({ method: 'GET', url: '/api/connections' }); assert.equal(r.statusCode, 200);
+  const b = r.json(); assert.equal(typeof b.ollama.running, 'boolean'); assert.equal(b.linkvault.usedByChat, false);
+});

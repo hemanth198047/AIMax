@@ -97,7 +97,11 @@ function MethodBox({ a }: { a: Account }) {
   );
 }
 
+interface Conn { ollama: { running: boolean; url: string; models: string[]; selected: string; successfulChats: number; lastUsed: string | null; note: string }; linkvault: { found: boolean; path: string; links: number | null; error: string; usedByChat: boolean; note: string } }
+function Dot({ ok }: { ok: boolean }) { return <span className={`inline-block w-2 h-2 rounded-full mr-1 ${ok ? 'bg-emerald-400' : 'bg-red-400'}`} />; }
+
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
+  const [conn, setConn] = useState<Conn | null>(null);
   const [data, setData] = useState<Accounts | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -107,7 +111,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   const load = useCallback(async () => {
     setBusy(true); setErr('');
-    try { setData(await apiFetch<Accounts>('/api/accounts')); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    try { setData(await apiFetch<Accounts>('/api/accounts')); apiFetch<Conn>('/api/connections').then(setConn).catch(() => undefined); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }, []);
   useEffect(() => { void load(); return () => { if (timer.current) clearInterval(timer.current); }; }, [load]);
 
@@ -139,6 +143,21 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="px-4 py-3 space-y-4 overflow-y-auto text-xs">
+          <section className="space-y-2" data-testid="connections">
+            <h3 className="text-[10px] uppercase tracking-wider text-slate-500">Local connections</h3>
+            {!conn ? <div className="text-slate-500">Checking…</div> : <>
+              <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-ollama">
+                <div><Dot ok={conn.ollama.running} /><b className="text-slate-200">Ollama</b> <span className="text-slate-600">· {conn.ollama.url}</span></div>
+                <div className="text-slate-400">{conn.ollama.note}</div>
+                {conn.ollama.running && <div className="text-slate-500">Models: {conn.ollama.models.join(', ') || 'none pulled'} · selected: {conn.ollama.selected || '—'} · successful chats: {conn.ollama.successfulChats}</div>}
+              </div>
+              <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-linkvault">
+                <div><Dot ok={conn.linkvault.found && !conn.linkvault.error} /><b className="text-slate-200">Link Vault</b>{conn.linkvault.links !== null && <span className="text-slate-500"> · {conn.linkvault.links} links</span>}</div>
+                <div className="text-slate-400">{conn.linkvault.note}</div>
+                <div className="text-slate-600 break-all">{conn.linkvault.path}{conn.linkvault.error ? ` — ${conn.linkvault.error}` : ''}</div>
+              </div>
+            </>}
+          </section>
           <section className="space-y-2">
             <h3 className="text-[10px] uppercase tracking-wider text-slate-500">Accounts — sign in with your subscription</h3>
             <p className="text-slate-500">Signing in works like the Claude, Cursor and ChatGPT apps: a browser window opens and you log in with your own account. AImax never sees your password or token — the official command-line tool of each service stores the login. No API keys needed.</p>

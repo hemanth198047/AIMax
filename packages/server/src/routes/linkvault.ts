@@ -4,7 +4,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 
 // Phase 27: Link Vault integration — read-only sync
-const LINKVAULT_DB = join('D:', 'ProjectsPortfolio', 'LinkVault', 'linkvault.db');
+const LINKVAULT_DB = process.env.AIMAX_LINKVAULT_DB || (process.platform === 'win32' ? 'D:\\ProjectsPortfolio\\LinkVault\\linkvault.db' : join('D:', 'ProjectsPortfolio', 'LinkVault', 'linkvault.db'));
 
 interface LinkVaultRow {
   id: number;
@@ -33,15 +33,18 @@ function getLinkVaultDb(): Database.Database | null {
   }
 }
 
+export const linkVaultPath = () => LINKVAULT_DB;
 export async function linkVaultRoutes(app: FastifyInstance) {
   app.get('/api/linkvault/status', async () => {
     const available = existsSync(LINKVAULT_DB);
     if (!available) return { available: false, path: LINKVAULT_DB };
     const db = getLinkVaultDb();
     if (!db) return { available: false, path: LINKVAULT_DB };
-    const count = (db.prepare('SELECT COUNT(*) as n FROM links').get() as { n: number }).n;
-    db.close();
-    return { available: true, path: LINKVAULT_DB, total_links: count };
+    try {
+      const count = (db.prepare('SELECT COUNT(*) as n FROM links').get() as { n: number }).n;
+      return { available: true, path: LINKVAULT_DB, total_links: count };
+    } catch (e) { return { available: false, path: LINKVAULT_DB, error: `Found the file but cannot read a "links" table: ${e instanceof Error ? e.message : String(e)}` }; }
+    finally { db.close(); }
   });
 
   app.get('/api/linkvault/links', async (req) => {
