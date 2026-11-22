@@ -35,8 +35,8 @@ export const ACCOUNTS: AccountDef[] = [
     blurb: 'Signs the Cursor CLI in with your Cursor account. AImax can chat through it (experimental — pick Cursor under Provider).' },
   { id: 'openai', label: 'OpenAI (ChatGPT / Codex)', app: 'ChatGPT account via the Codex CLI', bins: ['codex'], installHint: 'Install the Codex CLI: npm install -g @openai/codex',
     install: { win: 'npm install -g @openai/codex', posix: 'npm install -g @openai/codex', doc: 'https://github.com/openai/codex' },
-    login: ['login'], status: ['login', 'status'], logout: ['logout'], adapter: 'not-built',
-    blurb: 'Signs the Codex CLI in with your ChatGPT account. AImax cannot chat through Codex yet (adapter not built).' },
+    login: ['login'], status: ['login', 'status'], logout: ['logout'], adapter: 'ready',
+    blurb: 'Signs the Codex CLI in with your ChatGPT account. AImax can chat through it (experimental — pick Codex under Provider).' },
 ];
 
 const quote = (a: string) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);

@@ -1,4 +1,5 @@
 import { claudeChat, checkClaudeAvailable, type ChatMessage, type ReportedUsage } from './claude.js';
+import { codexChat, codexAvailable } from './codex.js';
 import { cursorChat, cursorAvailable } from './cursor.js';
 import { ollamaChat, checkOllamaAvailable, listOllamaModels } from './ollama.js';
 import { testChat, testProviderEnabled } from './test.js';
@@ -60,6 +61,13 @@ export async function autoChat(req: ChatRequest, onChunk: (text: string) => void
     const b = budgetCheck('cursor'); if (!b.ok) throw new Error(`${b.reason}. AImax will not call it again until then (zero-overage guard).`);
     const r = await tracked('cursor', 'cursor-agent', req, () => cursorChat(messages, system, onChunk, { signal }));
     return { text: r.text, provider: 'cursor', model: 'cursor-agent' };
+  }
+
+  if (preferred === 'codex') {
+    if (!codexAvailable()) throw new Error('Codex CLI is not installed. Open Settings → OpenAI for the installer.');
+    const b = budgetCheck('codex'); if (!b.ok) throw new Error(`${b.reason}. AImax will not call it again until then (zero-overage guard).`);
+    const r = await tracked('codex', 'codex', req, () => codexChat(messages, system, onChunk, { signal }));
+    return { text: r.text, provider: 'codex', model: 'codex' };
   }
 
   if (preferred === 'ollama' || preferred === 'auto') {

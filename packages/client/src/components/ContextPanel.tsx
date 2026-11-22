@@ -13,6 +13,7 @@ const PROVIDERS = [
   { id: 'claude', label: 'Claude', desc: 'Claude Code CLI' },
   { id: 'ollama', label: 'Ollama', desc: 'Local models' },
   { id: 'cursor', label: 'Cursor', desc: 'Cursor CLI (experimental)' },
+  { id: 'codex', label: 'Codex', desc: 'ChatGPT via Codex CLI (experimental)' },
 ];
 
 interface ProviderStatus {
@@ -119,6 +120,7 @@ export default function ContextPanel() {
             const statusOk = p.id === 'claude' ? providerStatus?.claude.available
               : p.id === 'ollama' ? providerStatus?.ollama.available
               : p.id === 'cursor' ? providerStatus?.cursor.available
+              : p.id === 'codex' ? providerStatus?.codex?.available
               : null;
             return (
               <button
@@ -144,7 +146,7 @@ export default function ContextPanel() {
           })}
         </div>
         <div className="mt-2 text-[9px] text-slate-700">
-          {providerStatus?.claude.available ? `Claude CLI ${providerStatus.claude.version ?? ''}` : 'Claude CLI not found'} · Cursor: experimental · Codex, FreeLLMAPI: no adapter yet
+          {providerStatus?.claude.available ? `Claude CLI ${providerStatus.claude.version ?? ''}` : 'Claude CLI not found'} · Cursor, Codex: experimental · FreeLLMAPI: no adapter yet
         </div>
       </div>
 

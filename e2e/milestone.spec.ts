@@ -301,7 +301,7 @@ test('usage & limits: a limit set in the UI is saved on the server; status never
   await expect.poll(async () => (await (await page.request.get('/api/settings/providers')).json()).limits).toEqual({ claude: { per_hour: 7, per_day: 30 } });
   await page.reload();
   await expect(page.getByLabel('claude hourly limit')).toHaveValue('7');
-  await expect(page.getByText(/Cursor: experimental · Codex, FreeLLMAPI: no adapter yet/)).toBeVisible();
+  await expect(page.getByText(/Cursor, Codex: experimental · FreeLLMAPI: no adapter yet/)).toBeVisible();
   const st = await (await page.request.get('/api/providers/status')).json();
   expect([st.cursor.available, st.codex.available, st.freellmapi.available]).toEqual([false, false, false]);
   await page.getByLabel('claude hourly limit').fill(''); await page.getByLabel('claude hourly limit').blur();
