@@ -154,6 +154,9 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-linkvault">
                 <div><Dot ok={conn.linkvault.found && !conn.linkvault.error} /><b className="text-slate-200">Link Vault</b>{conn.linkvault.links !== null && <span className="text-slate-500"> · {conn.linkvault.links} links</span>}</div>
                 <div className="text-slate-400">{conn.linkvault.note}</div>
+                {conn.linkvault.found && !conn.linkvault.error && (
+                  <label className="flex items-start gap-2 text-slate-300"><input type="checkbox" data-testid="linkvault-toggle" checked={conn.linkvault.usedByChat} onChange={async (e) => { try { await apiFetch('/api/connections/linkvault', { method: 'PUT', headers: { 'X-AImax-UI': '1' }, body: JSON.stringify({ enabled: e.target.checked }) }); setConn(await apiFetch<Conn>('/api/connections')); } catch (x) { setErr(x instanceof Error ? x.message : String(x)); } }} />
+                    <span>Let chats search my Link Vault. Matching titles, links and short summaries are added to the message, so they are sent to whichever provider answers (Claude, Ollama…). Transcripts are never read.</span></label>)}
                 <div className="text-slate-600 break-all">{conn.linkvault.path}{conn.linkvault.error ? ` — ${conn.linkvault.error}` : ''}</div>
               </div>
             </>}

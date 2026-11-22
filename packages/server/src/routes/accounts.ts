@@ -4,12 +4,18 @@ import { DATA_DIR, getDb } from '../db/index.js';
 import Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
 import { checkOllamaAvailable, listOllamaModels } from '../providers/ollama.js';
-import { getSetting } from '../providers/usage.js';
+import { getSetting, setSetting } from '../providers/usage.js';
+import { linkVaultInChat } from '../linkvault/search.js';
 import { linkVaultPath } from './linkvault.js';
 
 const quote = (a: string) => (/[\s"]/.test(a) ? `"${a}"` : a);
 
 export async function accountsRoutes(app: FastifyInstance) {
+  app.put<{ Body: { enabled?: unknown } }>('/api/connections/linkvault', async (req, reply) => {
+    if (req.headers['x-aimax-ui'] !== '1') return reply.status(403).send({ error: 'Must be changed from the AImax UI' });
+    if (typeof req.body?.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled must be true or false' });
+    setSetting('linkvault_in_chat', req.body.enabled); return { enabled: req.body.enabled };
+  });
   /** Ollama and LinkVault: are they reachable, and does AImax actually use them? */
   app.get('/api/connections', async () => {
     const up = await checkOllamaAvailable(); const models = up ? await listOllamaModels() : []; const chosen = getSetting<string>('ollama_model', '');
@@ -19,7 +25,7 @@ export async function accountsRoutes(app: FastifyInstance) {
     return {
       ollama: { running: up, url: process.env.OLLAMA_HOST || 'http://localhost:11434', models: models.map(m => m.name), selected: models.some(m => m.name === chosen) ? chosen : (models[0]?.name ?? ''), successfulChats: n.n, lastUsed: n.last,
         note: up ? (n.n ? 'Connected and used for chats.' : 'Connected, but no chat has used it yet — pick Ollama in the model picker.') : 'Not reachable. Start it with "ollama serve" (AImax starts it for you when launched with aimax.ps1).' },
-      linkvault: { ...lv, usedByChat: false, note: lv.found && !lv.error ? 'Connected (read-only). It feeds the Link Vault panel only — chats do not read it yet.' : lv.found ? 'File found but unreadable.' : 'Database file not found. Set AIMAX_LINKVAULT_DB to its full path and restart.' },
+      linkvault: { ...lv, usedByChat: linkVaultInChat(), note: lv.found && !lv.error ? (linkVaultInChat() ? 'Connected (read-only). Chats search it and include up to 4 matching saved links.' : 'Connected (read-only). Chats do not use it unless you turn it on below.') : lv.found ? 'File found but unreadable.' : 'Database file not found. Set AIMAX_LINKVAULT_DB to its full path and restart.' },
     };
   });
 
