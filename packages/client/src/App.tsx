@@ -36,9 +36,9 @@ function MainLayout() {
   useEffect(() => { loadConversations().catch(console.error); }, [activeProjectId, activePersonId]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-900 text-slate-100">
+    <div data-testid="app-root" className="flex h-screen overflow-clip bg-slate-900 text-slate-100">
       <Sidebar onShowKnowledge={() => setShowKnowledge(true)} onShowLinkVault={() => setShowLinkVault(true)} onShowImport={() => setShowImport(true)} onShowProject={setOverviewId} onShowSettings={() => setShowSettings(true)} />
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-clip">
         <ChatView />
         <SandboxPanel />
       </main>

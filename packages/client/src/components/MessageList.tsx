@@ -15,14 +15,15 @@ interface Props {
 }
 
 export default function MessageList({ messages, streaming, streamingText }: Props) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
+  // Scroll ONLY this list. (scrollIntoView also scrolls every ancestor, even overflow:hidden ones, which pushed the whole app up and left blank space at the bottom.)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = listRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length, streamingText]);
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-5">
+    <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-4 space-y-5">
       {messages.map((msg, i) => <MessageBubble key={msg.id} message={msg} isLast={i === messages.length - 1 && !streaming} />)}
       {streaming && (
         <div className="flex gap-3">
@@ -44,7 +45,6 @@ export default function MessageList({ messages, streaming, streamingText }: Prop
           </div>
         </div>
       )}
-      <div ref={bottomRef} />
     </div>
   );
 }

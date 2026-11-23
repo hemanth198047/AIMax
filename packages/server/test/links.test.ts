@@ -76,5 +76,5 @@ test('private chat pages and refused pages give an actionable workaround; nothin
   const s403 = createServer((_q, res) => { res.writeHead(403).end('no'); }); await new Promise<void>((r) => s403.listen(0, '127.0.0.1', r));
   process.env.AIMAX_LINKS_ALLOW_HOST = `127.0.0.1:${(s403.address() as any).port}`;
   const r = await readLink(`http://${process.env.AIMAX_LINKS_ALLOW_HOST}/x`); s403.close();
-  assert.match(r.error!, /needs a sign-in or blocks automated readers/); assert.match(r.error!, /copy, and paste/);
+  assert.match(r.error!, /needs a sign-in or blocks automated readers/); assert.match(r.error!, /Ctrl\+A then Ctrl\+C/);
 });
