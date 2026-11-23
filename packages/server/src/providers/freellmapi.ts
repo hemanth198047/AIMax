@@ -29,6 +29,8 @@ const headers = (c: FreeCfg) => ({ 'Content-Type': 'application/json', ...(c.key
 
 export async function freeProbe(): Promise<{ reachable: boolean; models: string[]; error: string }> {
   const c = freeConfig();
+  try { const u = new URL(c.url); if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname) && String(u.port || (u.protocol === 'https:' ? 443 : 80)) === String(process.env.PORT || 3001))
+    return { reachable: false, models: [], error: `That address (port ${u.port}) is AImax itself. Start FreeLLMAPI on a different port (for example PORT=3002) and set the base URL to http://localhost:3002/v1.` }; } catch { /* invalid URL is reported below */ }
   try {
     const r = await fetch(`${c.url}/models`, { headers: headers(c), signal: AbortSignal.timeout(3000) });
     if (r.status === 401 || r.status === 403) return { reachable: true, models: [], error: 'The server rejected the key (check the unified key in its dashboard).' };
@@ -40,7 +42,8 @@ export async function freeProbe(): Promise<{ reachable: boolean; models: string[
 let availCache: { at: number; key: string; ok: boolean } | null = null;
 /** Cached for 10 s because the UI polls provider status every few seconds. */
 export const freeAvailable = async () => {
-  const c = freeConfig(); const k = `${c.url}|${c.key}`;
+  const c = freeConfig(); if (!c.key) return false;                       // never probe the network for a gateway the user has not set up
+  const k = `${c.url}|${c.key}`;
   if (availCache && availCache.key === k && Date.now() - availCache.at < 10_000) return availCache.ok;
   const p = await freeProbe(); availCache = { at: Date.now(), key: k, ok: p.reachable && !p.error && !!c.key }; return availCache.ok;
 };

@@ -245,7 +245,7 @@ async function main() {
   for (let i = 0; i < 120 && !ready; i++) {
     const early = await Promise.race([exited, sleep(500).then(() => null)]);
     if (early !== null) { fail(`AImax stopped during start-up (exit code ${early}). The first error above is the one that matters.`); await shutdown(early || 1); }
-    ready = (await httpOk(`http://127.0.0.1:${SERVER_PORT}/api/providers/status`, 800)) && (await httpOk(`http://localhost:${UI_PORT}/`, 800));
+    ready = (await httpOk(`http://127.0.0.1:${SERVER_PORT}/api/health`, 3000)) && (await httpOk(`http://localhost:${UI_PORT}/`, 3000));   // /api/health is cheap; status checks tools and can be slow on first call
   }
   if (!ready) { fail('AImax did not become ready within 60 seconds. Read the messages above.'); await shutdown(1); }
 

@@ -165,3 +165,9 @@ test('connections: Ollama and Link Vault state are reported honestly', async () 
   const r = await app.inject({ method: 'GET', url: '/api/connections' }); assert.equal(r.statusCode, 200);
   const b = r.json(); assert.equal(typeof b.ollama.running, 'boolean'); assert.equal(b.linkvault.usedByChat, false);
 });
+
+test('memoTtl: the expensive PATH lookup runs once per interval, not once per status poll', async () => {
+  const { memoTtl } = await import('../src/accounts/cli.js'); let calls = 0; let t = 0;
+  const f = memoTtl(() => ++calls, 1000, () => t);
+  f(); f(); f(); assert.equal(calls, 1); t = 999; f(); assert.equal(calls, 1); t = 1000; f(); assert.equal(calls, 2);
+});

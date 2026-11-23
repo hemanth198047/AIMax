@@ -42,7 +42,13 @@ export const ACCOUNTS: AccountDef[] = [
 const quote = (a: string) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
 
 /** Windows: the PATH a NEW terminal would have (user + machine), read from the registry, so a CLI installed after AImax started is found without a restart. */
-function freshWindowsPath(): string[] {
+/** Memoise a function for `ttlMs` (the provider-status poll calls path lookups many times a second; spawning reg.exe each time froze start-up). */
+export function memoTtl<T>(fn: () => T, ttlMs: number, now: () => number = Date.now): () => T {
+  let at = -Infinity; let val: T;
+  return () => { const t = now(); if (t - at >= ttlMs) { val = fn(); at = t; } return val; };
+}
+const freshWindowsPath = memoTtl(readWindowsPath, 15_000);
+function readWindowsPath(): string[] {
   if (!WIN) return [];
   const out: string[] = [];
   for (const key of ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment']) {

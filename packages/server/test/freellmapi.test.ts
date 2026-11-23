@@ -48,3 +48,11 @@ test('connections route reports FreeLLMAPI state without ever returning the key'
   assert.ok(!t.includes('freellmapi-test')); const b = r.json(); assert.equal(b.freellmapi.keySet, true); assert.equal(b.freellmapi.reachable, true);
   await app.close();
 });
+
+test('FreeLLMAPI: no key → no network probe at all; pointing at AImax\'s own port is explained', async () => {
+  const m = await import('../src/providers/freellmapi.js');
+  m.saveFreeConfig({ key: '' }); m.saveFreeConfig({ url: 'http://127.0.0.1:1/v1' });
+  const t = Date.now(); assert.equal(await m.freeAvailable(), false); assert.ok(Date.now() - t < 50);
+  process.env.PORT = '3001'; m.saveFreeConfig({ url: 'http://localhost:3001/v1' });
+  const p = await m.freeProbe(); assert.equal(p.reachable, false); assert.match(p.error, /AImax itself.*different port/);
+});
