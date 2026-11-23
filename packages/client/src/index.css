@@ -3,7 +3,10 @@
 @tailwind utilities;
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; padding: 0; }
+html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none; }
+/* The app fills the window exactly and is taken out of the page flow, so the document itself can never become taller than the window
+   (nothing — focus, scrollIntoView, text selection — can then scroll the page and leave blank space). Only inner panels scroll. */
+#root { position: fixed; inset: 0; overflow: clip; }
 body {
   background: #0f172a;
   color: #e2e8f0;

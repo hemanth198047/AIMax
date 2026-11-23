@@ -603,4 +603,10 @@ test('layout never scrolls out of place: the app root and page stay at scroll 0 
   const o = await offsets();
   expect(o.root, 'app root scrolled').toBe(0); expect(o.doc, 'document scrolled').toBe(0); expect(o.bodyH).toBeLessThanOrEqual(o.vh);
   await expect(page.getByPlaceholder(/Message AImax/)).toBeInViewport();
+  // Hostile scrolling attempts must change nothing: page scroll, scrollIntoView on parts of the app, focus, keyboard.
+  await page.evaluate(() => { window.scrollTo(0, 5000); document.scrollingElement!.scrollTop = 5000; for (const sel of ['main', 'textarea', '[data-testid=app-root]', '[data-testid=msg-assistant]']) document.querySelector(sel)?.scrollIntoView(); document.querySelector('textarea')?.focus(); });
+  await page.keyboard.press('PageDown'); await page.keyboard.press('End'); await page.mouse.wheel(0, 3000); await page.waitForTimeout(400);
+  const o2 = await offsets();
+  expect(o2.root).toBe(0); expect(o2.doc).toBe(0); expect(o2.bodyH).toBeLessThanOrEqual(o2.vh);
+  const box = await page.getByTestId('app-root').boundingBox(); expect(box!.y).toBe(0); expect(Math.round(box!.height)).toBe(o2.vh);   // the app always fills the window exactly
 });
