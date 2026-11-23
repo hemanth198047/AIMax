@@ -20,6 +20,7 @@ export default function RunProposal({ command }: { command: string }) {
     if (!activeSandboxId) return;
     setPhase('running'); setError(''); if (!confirm) { setLines([]); setResult(''); }
     const r = await streamRun(activeSandboxId, command, {
+      onInfo: i => setLines(l => [...l, { t: `running in ${i.cwd} with ${i.shell}`, err: false }]),
       onStart: id => { runRef.current = id; },
       onChunk: (t, s) => setLines(l => [...l, ...t.split('\n').filter(x => x.length).map(x => ({ t: x, err: s === 'stderr' }))]),
       onDone: d => setResult(`exit ${d.exitCode} · ${d.durationMs}ms${d.status !== 'done' ? ' · ' + d.status : ''}${d.truncated ? ' · output truncated' : ''}`),

@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { getDb } from '../db/index.js';
 import { SandboxError, resolveInside, isDestructive } from '../sandbox/guard.js';
-import { startRun, cancelRun, dockerUsable, type RunResult } from '../sandbox/runner.js';
+import { startRun, cancelRun, dockerUsable, shellName, type RunResult } from '../sandbox/runner.js';
 import {
   git, createWorkspace, destroyWorkspace, listFiles, gitStatus, gitDiff, createCheckpoint, listCheckpoints, restoreCheckpoint,
   type SandboxMode, type WorkspaceKind,
@@ -125,17 +127,37 @@ export async function sandboxRoutes(app: FastifyInstance) {
     });
     const send = (event: string, data: unknown) => { if (!reply.raw.writableEnded) reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
 
-    const h = startRun({ command: req.body.command, cwd: sb.working_dir, timeoutMs, ...runOpts(sb),
-      onData: (text, stream) => send('chunk', { text, stream }) });
-    recordRun(sb, req.body.command, h.runId);
-    send('start', { runId: h.runId, sandboxId: sb.id });
-    // Cancel only when the *client connection* drops (req 'close' fires as soon as the body is read).
-    reply.raw.on('close', () => { if (!reply.raw.writableFinished) h.cancel(); });
+    send('start', { sandboxId: sb.id, shell: sb.mode === 'container' ? 'docker' : shellName(), cwd: sb.working_dir });
+    const ping = setInterval(() => { if (!reply.raw.writableEnded) reply.raw.write(': keepalive\n\n'); }, 5000);
+    try {
+      const h = startRun({ command: req.body.command, cwd: sb.working_dir, timeoutMs, ...runOpts(sb),
+        onData: (text, stream) => send('chunk', { text, stream }) });
+      recordRun(sb, req.body.command, h.runId);
+      send('started', { runId: h.runId });
+      // Cancel only when the *client connection* drops (req 'close' fires as soon as the body is read).
+      reply.raw.on('close', () => { if (!reply.raw.writableFinished) h.cancel(); });
+      const r = await h.result;
+      finishRun(r);
+      send('done', { runId: r.runId, exitCode: r.exitCode, status: r.status, truncated: r.truncated, durationMs: r.durationMs });
+    } catch (e) {
+      send('chunk', { text: `AImax could not run this command: ${(e as Error).message}\n`, stream: 'stderr' });
+      send('done', { runId: '', exitCode: -1, status: 'error', truncated: false, durationMs: 0 });
+    } finally {
+      clearInterval(ping);
+      reply.raw.end();
+    }
+  });
 
-    const r = await h.result;
-    finishRun(r);
-    send('done', { runId: r.runId, exitCode: r.exitCode, status: r.status, truncated: r.truncated, durationMs: r.durationMs });
-    reply.raw.end();
+  // Self-test of the command runner so "nothing happens" can be diagnosed: shows shell, output and timing.
+  app.post('/api/sandbox/diagnose', async (req) => {
+    if (req.headers['x-aimax-ui'] !== '1') throw new SandboxError('Must be run from the AImax UI', 403);
+    const dir = mkdtempSync(join(tmpdir(), 'aimax-diag-'));
+    try {
+      const win = process.platform === 'win32';
+      const h = startRun({ command: win ? 'Write-Output "aimax-ok"; (Get-Location).Path; node --version; git --version' : 'echo aimax-ok; pwd; node --version; git --version', cwd: dir, timeoutMs: 15_000 });
+      const r = await h.result;
+      return { platform: process.platform, shell: shellName(), exitCode: r.exitCode, status: r.status, durationMs: r.durationMs, stdout: r.stdout, stderr: r.stderr, ok: r.exitCode === 0 && r.stdout.includes('aimax-ok') };
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   app.post<{ Params: { runId: string } }>('/api/sandbox/runs/:runId/cancel', async (req) => ({ cancelled: cancelRun(req.params.runId) }));

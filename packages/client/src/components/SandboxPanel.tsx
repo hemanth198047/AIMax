@@ -89,20 +89,36 @@ export default function SandboxPanel() {
     setRunning(true); setRunId(null);
     say(`$ ${cmd}`, 'info');
     const ctrl = new AbortController(); abortRef.current = ctrl;
+    let lastOut = Date.now(); const t0 = Date.now();
+    const beat = setInterval(() => {
+      if (Date.now() - lastOut >= 5000) { say(`… still running (${Math.round((Date.now() - t0) / 1000)}s, no output yet)`, 'info'); lastOut = Date.now(); }
+    }, 5000);
     const r = await streamRun(active.id, cmd, {
+      onInfo: i => say(`running in ${i.cwd} with ${i.shell}`, 'info'),
       onStart: setRunId,
-      onChunk: (t, stream) => t.split('\n').filter(l => l.length).forEach(l => say(l, stream === 'stderr' ? 'stderr' : 'stdout')),
+      onChunk: (t, stream) => { lastOut = Date.now(); t.split('\n').filter(l => l.length).forEach(l => say(l, stream === 'stderr' ? 'stderr' : 'stdout')); },
       onDone: d => {
         const note = d.status === 'timeout' ? 'timed out' : d.status === 'cancelled' ? 'cancelled' : d.truncated ? 'output truncated' : '';
         say(`exit ${d.exitCode} · ${d.durationMs}ms${note ? ' · ' + note : ''}`, d.exitCode === 0 ? 'info' : 'error');
       },
     }, { confirm, signal: ctrl.signal });
+    clearInterval(beat);
     setRunning(false); setRunId(null); abortRef.current = null;
     if (!r.ok) {
       if (r.needsConfirmation && window.confirm(`${r.message}\n\nRun anyway?\n\n${cmd}`)) return execute(true, cmd);
       say(`Error: ${r.message}`, 'error');
     }
     refreshInspector(active.id);
+  };
+
+  const testTerminal = async () => {
+    say('Testing the command runner…', 'info');
+    try {
+      const d = await apiFetch<{ ok: boolean; shell: string; platform: string; exitCode: number; status: string; durationMs: number; stdout: string; stderr: string }>('/api/sandbox/diagnose', { method: 'POST', headers: { 'x-aimax-ui': '1' }, body: '{}' });
+      say(`${d.ok ? 'Terminal works' : 'Terminal problem'} · ${d.shell} on ${d.platform} · exit ${d.exitCode} · ${d.durationMs}ms`, d.ok ? 'info' : 'error');
+      d.stdout.split('\n').filter(Boolean).forEach(l => say(l, 'stdout'));
+      d.stderr.split('\n').filter(Boolean).forEach(l => say(l, 'stderr'));
+    } catch (e) { say(`Test failed: ${errMsg(e)}`, 'error'); }
   };
 
   const stop = async () => {
@@ -213,6 +229,7 @@ export default function SandboxPanel() {
                 {running
                   ? <button onClick={stop} className="p-1 text-red-400 hover:text-red-300" title="Stop"><Square size={11} /></button>
                   : <button onClick={() => execute()} disabled={!command.trim() || !active || readonly} className="p-1 text-slate-600 hover:text-indigo-400 disabled:opacity-30" title="Run"><Play size={11} /></button>}
+                <button onClick={testTerminal} data-testid="test-terminal" className="px-1 text-[10px] text-slate-500 hover:text-indigo-400" title="Check that commands can run on this computer">Test terminal</button>
                 <button onClick={() => setOutput([])} className="p-1 text-slate-700 hover:text-slate-500" title="Clear"><Trash2 size={10} /></button>
               </div>
             </>)}

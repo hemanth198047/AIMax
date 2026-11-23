@@ -1,4 +1,6 @@
-import { realpathSync, existsSync } from 'node:fs';
+import { realpathSync, existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resolve, sep, dirname, isAbsolute } from 'node:path';
 
 export class SandboxError extends Error {
@@ -27,7 +29,10 @@ export function resolveInside(root: string, rel: string): string {
   return target;
 }
 
-const ENV_ALLOW = ['PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'TZ', 'NODE_ENV'];
+// Windows tools (PowerShell, node, git, npm) misbehave or hang when basic system variables are missing, so the harmless ones are passed through.
+const ENV_ALLOW = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR', 'windir', 'COMSPEC', 'ComSpec', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'TZ', 'NODE_ENV',
+  'SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+  'PSModulePath', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'ALLUSERSPROFILE', 'PUBLIC'];
 const SECRET_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)/i;
 
 /** Minimal allow-listed environment. Host secrets/home are never inherited. */
@@ -38,6 +43,11 @@ export function scrubEnv(workDir: string, extra: Record<string, string> = {}): N
   }
   env.HOME = workDir;
   env.USERPROFILE = workDir;
+  if (process.platform === 'win32') {                       // per-user app folders point at a scratch folder, not at the real user's AppData
+    const base = join(tmpdir(), 'aimax-sandbox-appdata');
+    try { mkdirSync(join(base, 'Roaming'), { recursive: true }); mkdirSync(join(base, 'Local'), { recursive: true }); } catch { /* best effort */ }
+    env.APPDATA = join(base, 'Roaming'); env.LOCALAPPDATA = join(base, 'Local');
+  }
   env.TERM = 'dumb';
   env.AIMAX_SANDBOX = '1';
   for (const [k, v] of Object.entries(extra)) if (!SECRET_RE.test(k)) env[k] = v;

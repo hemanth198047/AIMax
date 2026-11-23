@@ -149,3 +149,11 @@ icon-only buttons had no accessible names.
 - A pasted link that needs a login (403/401, private chat hosts, empty JS pages) shows a **banner** in the chat: *Open the page in my browser* (a normal tab in the user's own browser, where they are already signed in) → Ctrl+A, Ctrl+C there → *Paste copied page* (reads the clipboard; textarea fallback) → *Re-send my message*. Pasted pages are stored locally for 24 h (`web_captures`, migration v8) and used by later reads of that link, including *Add link* in project knowledge. Settings can delete them.
 - An earlier attempt drove a Chrome window with Playwright/CDP; sites' "verify you are human" checks detect automation and looped forever, so it was **removed** (AImax does not try to hide automation from sites). AImax never controls a browser or sees a login.
 - Layout bug fixed: `scrollIntoView` in the message list scrolled the whole page and left blank space at the bottom; it now scrolls only the list (and the app root uses `overflow-clip`). Regression test in e2e.
+
+## Stage 17 — Sandbox terminal that cannot go silent
+- Windows commands run through `powershell -EncodedCommand` (no quoting problems), with progress bars off and UTF-8 output; PowerShell error XML (CLIXML) is turned back into readable text.
+- The scrubbed environment now keeps harmless Windows system variables (ProgramFiles, PSModulePath, SystemDrive, …); APPDATA/LOCALAPPDATA point at a scratch folder. Secrets are still removed.
+- A failure to start the shell is now printed in the terminal; a shell that exits while a background child holds the pipes no longer hangs the run.
+- The run stream announces shell + folder, sends keepalives, and always ends with a `done` event; the client reports a stream that ends without one.
+- Terminal shows "running in <folder> with <shell>", a "still running…" heartbeat, and a **Test terminal** button (`POST /api/sandbox/diagnose`).
+- Tests: server 138 pass, e2e 16 pass. Unverified on a real Windows machine.

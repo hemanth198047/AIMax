@@ -221,3 +221,46 @@ test('client disconnect cancels a streaming run', { skip: !IS_POSIX }, async () 
   assert.equal(status, 'cancelled');
   await api('DELETE', `/api/sandbox/${c.body.id}`);
 });
+
+// ── diagnostics & streaming ──────────────────────────────
+test('cleanClixml turns PowerShell error XML back into readable text', async () => {
+  const { cleanClixml } = await import('../src/sandbox/runner.js');
+  const xml = '#< CLIXML\r\n<Objs Version="1.1.0.1"><S S="Error">boom_x000D__x000A_</S><S S="Error">second</S></Objs>';
+  assert.equal(cleanClixml(xml), 'boom\nsecond');
+  assert.equal(cleanClixml('plain text'), 'plain text');
+});
+
+test('scrubEnv keeps basic system variables but not secrets', () => {
+  process.env.ProgramFiles = process.env.ProgramFiles ?? 'C:\\Program Files';
+  process.env.ANTHROPIC_API_KEY = 'secret';
+  const env = scrubEnv(tmpdir());
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.ok(env.ProgramFiles);
+  assert.equal(env.AIMAX_SANDBOX, '1');
+});
+
+test('startRun reports a missing shell instead of staying silent', async () => {
+  let seen = '';
+  const h = startRun({ command: 'echo hi', cwd: join(tmpdir(), 'definitely-missing-dir-xyz'), timeoutMs: 5000, onData: (t) => { seen += t; } });
+  const r = await h.result;
+  assert.equal(r.status, 'error');
+  assert.match(seen, /Could not start/);
+});
+
+test('diagnose endpoint runs a trivial command and requires the UI header', { skip: !IS_POSIX }, async () => {
+  const denied = await app.inject({ method: 'POST', url: '/api/sandbox/diagnose', payload: {} });
+  assert.equal(denied.statusCode, 403);
+  const ok = await app.inject({ method: 'POST', url: '/api/sandbox/diagnose', headers: { 'x-aimax-ui': '1' }, payload: {} });
+  const b = JSON.parse(ok.body);
+  assert.equal(b.ok, true);
+  assert.match(b.stdout, /aimax-ok/);
+});
+
+test('run stream announces shell, run id and a final done event', { skip: !IS_POSIX }, async () => {
+  const c = await api('POST', '/api/sandbox', { name: 'sse', mode: 'temporary', source_path: plain });
+  const r = await app.inject({ method: 'POST', url: `/api/sandbox/${c.body.id}/run`, payload: { command: 'echo streamed' } });
+  assert.match(r.body, /event: start\ndata: \{[^}]*"shell":"bash"/);
+  assert.match(r.body, /event: started/);
+  assert.match(r.body, /streamed/);
+  assert.match(r.body, /event: done\ndata: \{[^}]*"exitCode":0/);
+});

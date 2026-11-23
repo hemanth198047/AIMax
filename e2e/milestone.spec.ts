@@ -223,6 +223,7 @@ test('AI proposes a command → nothing runs until approved → runs in sandbox;
   await card.getByRole('button', { name: /Run in sandbox/ }).click();
   await expect(page.getByTestId('run-proposal-output')).toContainText('done-from-proposal');
   await expect(page.getByTestId('run-proposal-output')).toContainText('exit 0');
+  await expect(page.getByTestId('run-proposal-output')).toContainText(/running in .* with /);   // shell + folder are shown
   const after = await (await page.request.get(`/api/sandbox/${sb.id}/runs`)).json();
   expect(after).toHaveLength(1); expect(after[0].exit_code).toBe(0);
   await shot(page, '07-proposal-run');
@@ -609,4 +610,20 @@ test('layout never scrolls out of place: the app root and page stay at scroll 0 
   const o2 = await offsets();
   expect(o2.root).toBe(0); expect(o2.doc).toBe(0); expect(o2.bodyH).toBeLessThanOrEqual(o2.vh);
   const box = await page.getByTestId('app-root').boundingBox(); expect(box!.y).toBe(0); expect(Math.round(box!.height)).toBe(o2.vh);   // the app always fills the window exactly
+});
+
+test('sandbox terminal: Test terminal diagnoses the runner and a typed command shows output', async ({ page }) => {
+  const sb = await (await page.request.post('/api/sandbox', { data: { name: 'Terminal sandbox', mode: 'temporary' } })).json();
+  await page.goto('/');
+  await page.getByText('Sandbox', { exact: true }).click();
+  await expect(page.getByText(/Terminal sandbox/).first()).toBeVisible();
+  await page.getByTestId('test-terminal').click();
+  await expect(page.getByText(/Terminal works/)).toBeVisible();
+  await expect(page.getByText('aimax-ok')).toBeVisible();
+  await page.getByPlaceholder('Enter a command…').fill('echo typed-ok');
+  await page.getByPlaceholder('Enter a command…').press('Enter');
+  await expect(page.getByText('typed-ok').last()).toBeVisible();
+  await expect(page.getByText(/exit 0 · \d+ms/).last()).toBeVisible();
+  await expect(page.getByText(/running in .* with bash/)).toBeVisible();
+  void sb;
 });

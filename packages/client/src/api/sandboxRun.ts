@@ -1,5 +1,6 @@
 /** Shared streaming runner for the sandbox SSE endpoint (used by the terminal and by approved AI proposals). */
 export interface RunHandlers {
+  onInfo?: (i: { shell: string; cwd: string }) => void;
   onStart?: (runId: string) => void;
   onChunk?: (text: string, stream: 'stdout' | 'stderr') => void;
   onDone?: (d: { exitCode: number; status: string; truncated: boolean; durationMs: number }) => void;
@@ -18,7 +19,7 @@ export async function streamRun(sandboxId: string, command: string, handlers: Ru
     const j = await res.json().catch(() => ({} as { error?: string; needs_confirmation?: boolean }));
     return { ok: false, needsConfirmation: !!j.needs_confirmation, message: j.error ?? `HTTP ${res.status}` };
   }
-  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''; let gotDone = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -30,12 +31,14 @@ export async function streamRun(sandboxId: string, command: string, handlers: Ru
         const ev = /^event: (.+)$/m.exec(block)?.[1]; const data = /^data: (.+)$/m.exec(block)?.[1];
         if (!ev || !data) continue;
         const d = JSON.parse(data);
-        if (ev === 'start') handlers.onStart?.(d.runId);
+        if (ev === 'start') handlers.onInfo?.({ shell: String(d.shell ?? ''), cwd: String(d.cwd ?? '') });
+        else if (ev === 'started') handlers.onStart?.(d.runId);
         else if (ev === 'chunk') handlers.onChunk?.(String(d.text), d.stream === 'stderr' ? 'stderr' : 'stdout');
-        else if (ev === 'done') handlers.onDone?.(d);
+        else if (ev === 'done') { gotDone = true; handlers.onDone?.(d); }
       }
     }
-  } catch (e) { if ((e as Error).name !== 'AbortError') return { ok: false, message: (e as Error).message }; }
+  } catch (e) { if ((e as Error).name !== 'AbortError') return { ok: false, message: (e as Error).message }; return { ok: true }; }
+  if (!gotDone) return { ok: false, message: 'The connection to AImax closed before the command reported a result. Restart AImax (.\\aimax.ps1) and try "Test terminal".' };
   return { ok: true };
 }
 
