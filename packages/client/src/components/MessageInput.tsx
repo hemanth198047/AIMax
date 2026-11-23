@@ -1,6 +1,8 @@
+import SignInBanner from './SignInBanner';
+import { useSignIn } from '../stores/signinStore';
 import { ctxQs } from '../api/conversations';
 import { loadConversations } from '../api/conversations';
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Paperclip, Square, X } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { useChatStore } from '../stores/chatStore';
@@ -38,6 +40,11 @@ export default function MessageInput({ conversationId }: Props) {
     t.style.height = 'auto';
     t.style.height = Math.min(t.scrollHeight, 180) + 'px';
   };
+
+  useEffect(() => { useSignIn.getState().setPending(null); }, [conversationId]);     // a sign-in prompt belongs to the chat it came from
+  const sendAfter = useRef(false);
+  const resendMsg = useSignIn((st) => st.resend);
+  useEffect(() => { if (resendMsg) { setInput(resendMsg); sendAfter.current = true; useSignIn.getState().setResend(null); } }, [resendMsg]);
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
@@ -95,6 +102,7 @@ export default function MessageInput({ conversationId }: Props) {
           if (ev === 'chunk' && d.text) appendStreamingText(d.text);
           else if (ev === 'activity') addActivity({ step: d.step, detail: d.detail });
           else if (ev === 'context') setRetrieved(d.items ?? []);
+          else if (ev === 'signin') useSignIn.getState().setPending({ urls: d.urls ?? [], message: text });
           else if (ev === 'error') addActivity({ step: 'error', detail: d.message });
         }
       }
@@ -120,10 +128,13 @@ export default function MessageInput({ conversationId }: Props) {
     }
   }, [input, attachments, conversationId, provider, enhance, activeProjectId, activePersonId, scope, streaming]);
 
+  useEffect(() => { if (sendAfter.current && input && !streaming) { sendAfter.current = false; void sendMessage(); } }, [input, streaming, sendMessage]);
+
   return (
     <div className="border-t border-slate-700/50 bg-slate-900/80 backdrop-blur p-3"
       onDragOver={e => e.preventDefault()}
       onDrop={e => { e.preventDefault(); const fs = Array.from(e.dataTransfer.files); if (fs.length) uploadFiles(fs); }}>
+      <SignInBanner />
       {(attachments.length > 0 || uploadError) && (
         <div className="flex flex-wrap gap-1.5 mb-2" data-testid="attachment-chips">
           {attachments.map(a => (

@@ -102,6 +102,8 @@ export async function chatRoutes(app: FastifyInstance) {
     if (urls.length) {
       send('activity', { step: 'links', detail: `reading ${urls.length} link${urls.length > 1 ? 's' : ''}…` });
       linkResults = await Promise.all(urls.map((u) => readLink(u, ctrl.signal)));
+      const needSignIn = linkResults.filter((r) => r.needsSignIn).map((r) => r.url);
+      if (needSignIn.length) send('signin', { urls: needSignIn });
       const lb = linkBlock(linkResults); linkText = lb.text; linkUsed = lb.used;
       send('activity', { step: 'links', detail: linkResults.map((r) => (r.ok ? `read ${new URL(r.finalUrl ?? r.url).hostname}` : `could not read ${new URL(r.url).hostname}: ${r.error}`)).join(' · ') });
       ctx.items.push(...linkResults.map((r, i) => ({ id: `link:${i}`, title: r.ok ? (r.title || r.url) : `${r.url} (not read)`, type: 'web', scope: 'pasted link', provenance: r.ok ? 'fetched now' : (r.error ?? 'failed'), chars: r.text?.length ?? 0 })));

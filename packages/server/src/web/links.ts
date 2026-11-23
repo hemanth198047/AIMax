@@ -11,9 +11,13 @@ import net from 'node:net';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getCapture } from './captures.js';
 import { extractAttachment } from '../attachments/extract.js';
 
 export const LINK_LIMITS = { maxLinks: 3, maxBytes: 2 * 1024 * 1024, maxPdfBytes: 10 * 1024 * 1024, timeoutMs: 10_000, redirects: 4, charsPerLink: 12_000, totalChars: 24_000 };
+
+/** Pages the user captured on purpose (long chats, articles) get a bigger allowance than automatic fetches. */
+const SIGNED_IN_CHARS = 60_000;
 
 export function extractUrls(message: string): string[] {
   const found = message.match(/https?:\/\/[^\s<>"'`]+/gi) ?? [];
@@ -110,23 +114,25 @@ export function htmlToText(html: string): { title: string; description: string; 
   return { title, description, text };
 }
 
-export interface LinkResult { url: string; finalUrl?: string; ok: boolean; title?: string; text?: string; truncated?: boolean; kind?: string; error?: string }
+export interface LinkResult { needsSignIn?: boolean; url: string; finalUrl?: string; ok: boolean; title?: string; text?: string; truncated?: boolean; kind?: string; error?: string }
 
 const PRIVATE_CHAT = /^(?:www\.)?(claude\.ai|chatgpt\.com|chat\.openai\.com|gemini\.google\.com|copilot\.microsoft\.com|perplexity\.ai)$/i;
 function gatedHint(u: URL, status?: number): string | null {
   const host = u.hostname;
   const isShare = /\/share\//.test(u.pathname);
-  if (PRIVATE_CHAT.test(host) && !isShare) return `${host} chats are private to your account, so AImax cannot open them (nothing was sent there). Workarounds: (1) paste the chat text into the message, (2) in that chat ask for a handoff summary and paste it, or (3) export your chats (Claude: Settings → Privacy → Export data; ChatGPT: Settings → Data controls → Export) and use "Import chats" in AImax's sidebar, then continue the chat there.`;
-  if (status === 401 || status === 403) return `The site refused the request${PRIVATE_CHAT.test(host) ? ' (shared chat pages usually block automated readers)' : ' (it needs a sign-in or blocks automated readers)'}. Workaround: open the page yourself, select all, copy, and paste the text into the message — or save it as a PDF/text file and attach it, or add it to the project's knowledge.`;
+  if (PRIVATE_CHAT.test(host) && !isShare) return `${host} chats are private to your account, so AImax cannot open them (nothing was sent there). Easiest: click "Open browser to sign in" below, sign in, open that chat, then click "Read this page". Other workarounds: (1) paste the chat text into the message, (2) in that chat ask for a handoff summary and paste it, or (3) export your chats (Claude: Settings → Privacy → Export data; ChatGPT: Settings → Data controls → Export) and use "Import chats" in AImax's sidebar, then continue the chat there.`;
+  if (status === 401 || status === 403) return `The site refused the request${PRIVATE_CHAT.test(host) ? ' (shared chat pages usually block automated readers)' : ' (it needs a sign-in or blocks automated readers)'}. Easiest: click "Open browser to sign in" below, sign in, open the page, then click "Read this page". Or open the page yourself, select all, copy, and paste the text into the message — or save it as a PDF/text file and attach it, or add it to the project's knowledge.`;
   return null;
 }
 
 export async function readLink(url: string, signal?: AbortSignal): Promise<LinkResult> {
   try {
-    const gated = gatedHint(new URL(url)); if (gated) return { url, ok: false, error: gated };
+    const captured = getCapture(url);                                                   // a page the user already captured through the sign-in browser
+    if (captured) return { url, ok: true, kind: 'signed-in page', title: captured.title, finalUrl: captured.url, text: captured.text.slice(0, SIGNED_IN_CHARS), truncated: captured.text.length > SIGNED_IN_CHARS };
+    const gated = gatedHint(new URL(url)); if (gated) return { url, ok: false, needsSignIn: true, error: gated };
     const first = await get(url, LINK_LIMITS.maxPdfBytes, signal);
     const type = String(first.headers['content-type'] ?? '').toLowerCase();
-    if (first.status >= 400) return { url, ok: false, error: gatedHint(new URL(first.finalUrl), first.status) ?? `The site answered HTTP ${first.status}.` };
+    if (first.status >= 400) return { url, ok: false, needsSignIn: first.status === 401 || first.status === 403, error: gatedHint(new URL(first.finalUrl), first.status) ?? `The site answered HTTP ${first.status}.` };
     const cap = LINK_LIMITS.charsPerLink; const trunc = !!first.headers['x-aimax-truncated'];
     if (type.includes('application/pdf')) {
       if (trunc) return { url, ok: false, error: 'The PDF is larger than 10 MB.' };
@@ -140,7 +146,7 @@ export async function readLink(url: string, signal?: AbortSignal): Promise<LinkR
     const body = first.body.toString('utf8');
     if (type.includes('html') || /^\s*<(!doctype|html)/i.test(body)) {
       const h = htmlToText(body); const text = [h.description && h.description !== h.text.slice(0, h.description.length) ? h.description : '', h.text].filter(Boolean).join('\n\n');
-      if (text.length < 80) return { url, ok: false, error: 'The page has almost no readable text (it may need JavaScript or a sign-in).' };
+      if (text.length < 80) return { url, ok: false, needsSignIn: true, error: 'The page has almost no readable text (it may need JavaScript or a sign-in).' };
       return { url, finalUrl: first.finalUrl, ok: true, kind: 'html', title: h.title, text: text.slice(0, cap), truncated: trunc || text.length > cap };
     }
     if (/^(text\/|application\/(json|xml|x-yaml|yaml)|application\/[\w.+-]*\+(json|xml))/.test(type) || type === '') {
@@ -155,11 +161,11 @@ export async function readLink(url: string, signal?: AbortSignal): Promise<LinkR
 
 /** Wraps fetched pages for the model. Marked as untrusted so instructions inside a page are not followed. */
 export function linkBlock(results: LinkResult[]): { text: string; used: number } {
-  let budget = LINK_LIMITS.totalChars; const parts: string[] = [];
+  const total = results.some((r) => r.kind === 'signed-in page') ? SIGNED_IN_CHARS : LINK_LIMITS.totalChars; let budget = total; const parts: string[] = [];
   for (const r of results) {
     if (!r.ok) { parts.push(`### ${r.url}\n[AImax could not read this link: ${r.error} Do not guess what it contains; tell the user it could not be read and pass on the workaround.]`); continue; }
     const t = (r.text ?? '').slice(0, Math.max(0, budget)); budget -= t.length;
     parts.push(`### ${r.title ? `${r.title} — ` : ''}${r.finalUrl ?? r.url}${r.finalUrl && r.finalUrl !== r.url ? ` (from ${r.url})` : ''}\n${t}${r.truncated || t.length < (r.text?.length ?? 0) ? '\n[…page truncated]' : ''}`);
   }
-  return { text: parts.join('\n\n'), used: LINK_LIMITS.totalChars - budget };
+  return { text: parts.join('\n\n'), used: total - budget };
 }

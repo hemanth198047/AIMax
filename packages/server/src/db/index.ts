@@ -349,6 +349,18 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       CREATE INDEX IF NOT EXISTS idx_pk_project ON project_knowledge(project_id);
     `);
   },
+  // v8: pages the USER captured from AImax's own sign-in browser (kept 24 h, local only)
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS web_captures (
+        key TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        title TEXT DEFAULT '',
+        text TEXT NOT NULL,
+        captured_at TEXT NOT NULL
+      );
+    `);
+  },
 ];
 
 function migrate(db: Database.Database) {

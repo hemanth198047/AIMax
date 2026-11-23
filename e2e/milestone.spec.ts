@@ -519,8 +519,11 @@ test('pasted links are read and shown as context; private addresses and failures
     await expect(page.getByTestId('links-toggle')).not.toBeChecked();
     await page.getByLabel(/close/i).first().click().catch(() => undefined);
     await page.reload();
+    await expect(page.getByTestId('msg-assistant')).toHaveCount(2, { timeout: 10_000 });      // wait for the saved chat to load
     const out3 = await askAndRead(page, 'Again http://127.0.0.1:3999/doc');
     expect(out3).toContain('links-seen: none');
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('links-toggle').click(); await expect(page.getByTestId('links-toggle')).toBeChecked();   // restore the default for later tests
   } finally { srv.close(); }
 });
 
@@ -555,4 +558,45 @@ test('projects like Claude: instructions + knowledge on the project page, chats 
   const out2 = await askAndRead(page, 'what is the launch codename?');
   expect(out2).toContain('knowledge-seen: none');
   void b;
+});
+
+test('a link that needs a login: AImax opens a browser, you sign in, it reads the page you chose, then the message is re-sent with it', async ({ page }) => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    const authed = /sid=ok/.test(req.headers.cookie ?? '');
+    if (req.url === '/login') { res.writeHead(302, { 'set-cookie': 'sid=ok; Path=/; Max-Age=3600', location: '/secret' }).end(); return; }
+    if (req.url === '/secret') {
+      if (authed) { res.writeHead(200, { 'content-type': 'text/html' }).end(`<html><head><title>Members page</title></head><body><main><p>The members-only codename is KESTREL-9 and it was agreed on Tuesday. ${'Extra detail goes here. '.repeat(10)}</p></main></body></html>`); return; }
+      // A real browser (it sends sec-fetch headers) is sent to log in automatically — standing in for the person typing a password; plain HTTP clients just get 403.
+      if (req.headers['sec-fetch-dest']) { res.writeHead(200, { 'content-type': 'text/html' }).end('<html><body>Signing in…<script>location.href="/login"</script></body></html>'); return; }
+      res.writeHead(403, { 'content-type': 'text/html' }).end('<html><body>forbidden</body></html>'); return;
+    }
+    res.writeHead(404).end('no');
+  });
+  await new Promise<void>((r) => srv.listen(3999, '127.0.0.1', r));
+  try {
+    await page.goto('/');
+    await sidebarTab(page, 'Chats').click();
+    await page.getByRole('button', { name: /New Conversation/ }).first().click();
+    await page.getByRole('button', { name: /^Test/ }).click();
+    const first = await askAndRead(page, 'What is the codename on http://127.0.0.1:3999/secret ?');
+    expect(first).toContain('could not read this link'); expect(first).not.toContain('KESTREL-9');
+    const banner = page.getByTestId('signin-banner');
+    await expect(banner).toContainText('needs you to sign in');
+    await banner.getByTestId('signin-open').click();
+    await expect(banner.getByTestId('signin-read')).toBeVisible({ timeout: 20_000 });
+    await expect(async () => {                                   // the "user" finishes signing in; wait for the member page to be showing
+      await banner.getByTestId('signin-read').click();
+      await expect(banner.getByTestId('signin-captured')).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(banner.getByTestId('signin-captured')).toContainText('Members page');
+    const before = await page.getByTestId('msg-assistant').count();
+    await banner.getByTestId('signin-resend').click();
+    await expect(page.getByTestId('msg-assistant')).toHaveCount(before + 1, { timeout: 15_000 });
+    await expect(lastAssistant(page)).toContainText('KESTREL-9');
+    await expect(page.getByTestId('signin-banner')).toHaveCount(0);
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('forget-signins').click();
+    await expect(page.getByTestId('forgot-msg')).toContainText('removed');
+  } finally { srv.close(); }
 });

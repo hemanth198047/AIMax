@@ -123,6 +123,7 @@ function Dot({ ok }: { ok: boolean }) { return <span className={`inline-block w-
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [conn, setConn] = useState<Conn | null>(null);
+  const [forgot, setForgot] = useState('');
   const [data, setData] = useState<Accounts | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -170,6 +171,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-links">
                 <label className="flex items-start gap-2 text-slate-300"><input type="checkbox" data-testid="links-toggle" checked={conn.links.enabled} onChange={async (e) => { try { await apiFetch('/api/connections/links', { method: 'PUT', headers: { 'X-AImax-UI': '1' }, body: JSON.stringify({ enabled: e.target.checked }) }); setConn(await apiFetch<Conn>('/api/connections')); } catch (x) { setErr(x instanceof Error ? x.message : String(x)); } }} />
                   <span><b className="text-slate-200">Read links I paste</b> — up to 3 public web pages or PDFs per message are downloaded by this computer and added to the message as reference text, so they are sent to whichever provider answers. Private/internal addresses, logins and cookies are never used.</span></label>
+              </div>
+              <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-browser">
+                <b className="text-slate-200">Sign-in browser</b>
+                <div className="text-slate-400">When a pasted link needs a login, AImax opens its own Chrome/Edge window (a separate profile, not your everyday browser). You sign in there; AImax reads a page only when you click <i>Read this page</i>. Saved sign-ins stay in AImax's profile folder until you forget them.</div>
+                <button data-testid="forget-signins" onClick={async () => { try { const r = await apiFetch<{ forgotSignIns: boolean; removedCapturedPages: number }>('/api/web/profile', { method: 'DELETE', headers: { 'X-AImax-UI': '1' } }); setErr(''); setForgot(r.forgotSignIns || r.removedCapturedPages > 0 ? `Done: saved sign-ins removed${r.removedCapturedPages ? `, ${r.removedCapturedPages} captured page(s) deleted` : ''}.` : 'Nothing was saved.'); } catch (x) { setErr(x instanceof Error ? x.message : String(x)); } }} className="px-3 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800">Forget saved sign-ins and captured pages</button>
+                {forgot && <div className="text-emerald-300" data-testid="forgot-msg">{forgot}</div>}
               </div>
               <FreeCard f={conn.freellmapi} reload={async () => setConn(await apiFetch<Conn>('/api/connections'))} setErr={setErr} />
               <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-ollama">

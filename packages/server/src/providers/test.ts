@@ -17,7 +17,7 @@ export async function testChat(messages: ChatMessage[], system: string, onChunk:
     `memory-context: ${mem ? mem.replace(/\n---\n/g, ' | ') : 'none'}`,
     `attachments-seen: ${[...last.matchAll(/\[Attached file: ([^\]]*?)(?: —| \()/g)].map(m => m[1]).join(', ') || 'none'}`,
     `knowledge-seen: ${/\[Project knowledge/.test(last) ? last.slice(last.indexOf('\n---') > 0 ? last.indexOf('[Project knowledge') : 0, last.indexOf('[Project knowledge') + 400).replace(/\n/g, ' ') : 'none'}`,
-    `links-seen: ${/\[Content fetched from links/.test(last) ? last.slice(last.indexOf('\n###') + 1, last.indexOf('\n###') + 200).replace(/\n/g, ' ') : 'none'}`,
+    `links-seen: ${/\[Content fetched from links/.test(last) ? last.slice(last.indexOf('\n###') + 1, last.indexOf('\n###') + 420).replace(/\n/g, ' ') : 'none'}`,
     `history-messages: ${messages.length}`,
     `guidance: ${last.includes('[AImax guidance') ? 'yes' : 'no'}`,
     `run-protocol: ${system.includes('aimax-run') ? 'yes' : 'no'}`,
