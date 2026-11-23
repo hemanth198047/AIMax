@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: e2e/milestone.spec.ts >> first working milestone: project → person → link → context → chat+attachment → sandbox → restart → resume
-- Location: e2e/milestone.spec.ts:43:1
+- Name: e2e/milestone.spec.ts >> pasted links are read and shown as context; private addresses and failures are reported; the setting turns it off
+- Location: e2e/milestone.spec.ts:498:1
 
 # Error details
 

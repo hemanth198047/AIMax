@@ -16,6 +16,7 @@ export async function testChat(messages: ChatMessage[], system: string, onChunk:
     `TEST-PROVIDER reply to: ${last.split('\n')[0].slice(0, 120)}`,
     `memory-context: ${mem ? mem.replace(/\n---\n/g, ' | ') : 'none'}`,
     `attachments-seen: ${[...last.matchAll(/\[Attached file: ([^\]]*?)(?: —| \()/g)].map(m => m[1]).join(', ') || 'none'}`,
+    `links-seen: ${/\[Content fetched from links/.test(last) ? last.slice(last.indexOf('\n###') + 1, last.indexOf('\n###') + 200).replace(/\n/g, ' ') : 'none'}`,
     `history-messages: ${messages.length}`,
     `guidance: ${last.includes('[AImax guidance') ? 'yes' : 'no'}`,
     `run-protocol: ${system.includes('aimax-run') ? 'yes' : 'no'}`,

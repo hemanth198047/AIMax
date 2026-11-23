@@ -494,3 +494,32 @@ test('project overview opens from the sidebar and shows only that project\'s dat
   await expect(dlg.getByText('Other project task')).toHaveCount(0);
   await dlg.getByLabel('Close').click(); await expect(dlg).toHaveCount(0);
 });
+
+test('pasted links are read and shown as context; private addresses and failures are reported; the setting turns it off', async ({ page }) => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    if (req.url === '/doc') { res.setHeader('content-type', 'text/html'); res.end(`<html><head><title>Pelican Guide</title></head><body><main><h1>Pelican migration</h1><p>${'Pelicans migrate along the coast in autumn and winter, feeding on small fish. '.repeat(8)}</p></main></body></html>`); return; }
+    res.writeHead(404).end('no');
+  });
+  await new Promise<void>((r) => srv.listen(3999, '127.0.0.1', r));
+  try {
+    await page.goto('/');
+    await sidebarTab(page, 'Chats').click();
+    await page.getByRole('button', { name: /New Conversation/ }).first().click();
+    await page.getByRole('button', { name: /^Test/ }).click();
+    const out = await askAndRead(page, 'Summarise http://127.0.0.1:3999/doc please');
+    expect(out).toContain('Pelican Guide'); expect(out).toContain('Pelican migration');
+    await expect(page.getByTestId('activity')).toContainText('read 127.0.0.1');
+    const out2 = await askAndRead(page, 'And this http://169.254.169.254/latest/meta-data and http://127.0.0.1:3999/missing');
+    expect(out2).toContain('could not read this link');
+    await expect(page.getByTestId('activity')).toContainText(/private or internal/);
+    await expect(page.getByTestId('activity')).toContainText(/HTTP 404/);
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('links-toggle').click();
+    await expect(page.getByTestId('links-toggle')).not.toBeChecked();
+    await page.getByLabel(/close/i).first().click().catch(() => undefined);
+    await page.reload();
+    const out3 = await askAndRead(page, 'Again http://127.0.0.1:3999/doc');
+    expect(out3).toContain('links-seen: none');
+  } finally { srv.close(); }
+});

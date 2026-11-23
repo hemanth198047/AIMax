@@ -134,3 +134,8 @@ icon-only buttons had no accessible names.
 - Settings → Local connections shows live Ollama / Link Vault / FreeLLMAPI state. Cursor status no longer depends on `--help` probes; CLI detection re-reads the Windows PATH on each check.
 - Tests: server 116 pass, e2e 10 pass, both `tsc` clean. **Nothing in this stage has run on Windows or against the real Cursor, Codex or FreeLLMAPI.**
 - Needs real data from the owner: the first real error/output from each adapter, an Import-chats scan, one real Claude agent run.
+
+## Stage 14 — pasted links
+- Links in a message (max 3, http/https) are downloaded by AImax and added to that turn as **untrusted reference text** (HTML → readable text, plain text/JSON, PDF). Shown in the activity strip and context list; failures are reported to the model so it does not guess. On by default; Settings → Local connections turns it off.
+- Safety: public hosts only. Every resolved address is checked at connect time and on each redirect (loopback, private, link-local, cloud metadata, CGNAT, IPv6 ULA/mapped refused); no cookies, credentials or logins; 10 s / 2 MB (PDF 10 MB) caps; PDF text via a temp file that is deleted at once. Test-only hook: `AIMAX_LINKS_ALLOW_HOST`.
+- Not handled: pages that need JavaScript or a sign-in (reported as unreadable), YouTube transcripts, images. Tested against local fixture servers only — **not yet against real sites**.

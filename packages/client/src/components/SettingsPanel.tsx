@@ -97,7 +97,7 @@ function MethodBox({ a }: { a: Account }) {
   );
 }
 
-interface Conn { freellmapi: { url: string; model: string; keySet: boolean; reachable: boolean; models: string[]; error: string; note: string }; ollama: { running: boolean; url: string; models: string[]; selected: string; successfulChats: number; lastUsed: string | null; note: string }; linkvault: { found: boolean; path: string; links: number | null; error: string; usedByChat: boolean; note: string } }
+interface Conn { links: { enabled: boolean }; freellmapi: { url: string; model: string; keySet: boolean; reachable: boolean; models: string[]; error: string; note: string }; ollama: { running: boolean; url: string; models: string[]; selected: string; successfulChats: number; lastUsed: string | null; note: string }; linkvault: { found: boolean; path: string; links: number | null; error: string; usedByChat: boolean; note: string } }
 function FreeCard({ f, reload, setErr }: { f: Conn['freellmapi']; reload: () => Promise<void>; setErr: (s: string) => void }) {
   const [url, setUrl] = useState(f.url); const [key, setKey] = useState(''); const [model, setModel] = useState(f.model);
   const save = async () => {
@@ -167,6 +167,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           <section className="space-y-2" data-testid="connections">
             <h3 className="text-[10px] uppercase tracking-wider text-slate-500">Local connections</h3>
             {!conn ? <div className="text-slate-500">Checking…</div> : <>
+              <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-links">
+                <label className="flex items-start gap-2 text-slate-300"><input type="checkbox" data-testid="links-toggle" checked={conn.links.enabled} onChange={async (e) => { try { await apiFetch('/api/connections/links', { method: 'PUT', headers: { 'X-AImax-UI': '1' }, body: JSON.stringify({ enabled: e.target.checked }) }); setConn(await apiFetch<Conn>('/api/connections')); } catch (x) { setErr(x instanceof Error ? x.message : String(x)); } }} />
+                  <span><b className="text-slate-200">Read links I paste</b> — up to 3 public web pages or PDFs per message are downloaded by this computer and added to the message as reference text, so they are sent to whichever provider answers. Private/internal addresses, logins and cookies are never used.</span></label>
+              </div>
               <FreeCard f={conn.freellmapi} reload={async () => setConn(await apiFetch<Conn>('/api/connections'))} setErr={setErr} />
               <div className="border border-slate-800 rounded-lg p-3 space-y-1" data-testid="conn-ollama">
                 <div><Dot ok={conn.ollama.running} /><b className="text-slate-200">Ollama</b> <span className="text-slate-600">· {conn.ollama.url}</span></div>
