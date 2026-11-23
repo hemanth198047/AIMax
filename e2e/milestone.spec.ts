@@ -523,3 +523,36 @@ test('pasted links are read and shown as context; private addresses and failures
     expect(out3).toContain('links-seen: none');
   } finally { srv.close(); }
 });
+
+test('projects like Claude: instructions + knowledge on the project page, chats in the project use them, other projects do not', async ({ page }) => {
+  const post = async (url: string, data: object) => (await page.request.post(url, { data })).json();
+  const a = await post('/api/projects', { name: 'Knowledge Proj A' }); const b = await post('/api/projects', { name: 'Knowledge Proj B' });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByTestId(`overview-${a.id}`).click();
+  const dlg = page.getByTestId('project-overview');
+  await dlg.getByLabel('Project instructions').fill('Always answer in haiku form.');
+  await dlg.getByTestId('save-instructions').click();
+  await expect(dlg.getByTestId('knowledge-msg')).toContainText('Instructions saved');
+  expect((await (await page.request.get(`/api/projects/${a.id}`)).json()).instructions).toBe('Always answer in haiku form.');
+  await dlg.getByLabel('Note title').fill('Launch plan');
+  await dlg.getByLabel('Note text').fill('The launch codename is ZEBRA-PRIME and the date is March 3.');
+  await dlg.getByTestId('add-note').click();
+  await expect(dlg.getByTestId('knowledge-item')).toContainText('Launch plan');
+  await expect(dlg.getByLabel('Knowledge capacity')).toBeVisible();
+  await dlg.getByTestId('project-new-chat').click();
+  await expect(page.getByTestId('project-overview')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Test/ }).click();
+  const out = await askAndRead(page, 'what is the launch codename?');
+  expect(out).toContain('ZEBRA-PRIME');
+  await expect(page.getByTestId('activity')).toContainText('1 project file');
+  // another project's chat must not see it
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByRole('button', { name: /Knowledge Proj B/ }).first().click();
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await page.getByRole('button', { name: /New Conversation/ }).first().click();
+  await page.getByRole('button', { name: /^Test/ }).click();
+  const out2 = await askAndRead(page, 'what is the launch codename?');
+  expect(out2).toContain('knowledge-seen: none');
+  void b;
+});

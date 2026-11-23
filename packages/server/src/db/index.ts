@@ -332,6 +332,23 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       ALTER TABLE usage_events ADD COLUMN reported_cost REAL;
     `);
   },
+  // v7: project knowledge (files, notes and pages added to a project; text only, used in that project's chats)
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_knowledge (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL DEFAULT 'file',
+        title TEXT NOT NULL,
+        source TEXT DEFAULT '',
+        mimetype TEXT DEFAULT '',
+        size INTEGER DEFAULT 0,
+        text TEXT NOT NULL DEFAULT '',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_pk_project ON project_knowledge(project_id);
+    `);
+  },
 ];
 
 function migrate(db: Database.Database) {

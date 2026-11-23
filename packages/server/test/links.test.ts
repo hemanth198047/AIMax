@@ -65,3 +65,16 @@ test('a hanging server can be cancelled', async () => {
   const c = new AbortController(); setTimeout(() => c.abort(), 200); const t = Date.now();
   const r = await readLink(`http://${host}/slow`, c.signal); assert.equal(r.ok, false); assert.ok(Date.now() - t < 3000);
 });
+
+test('private chat pages and refused pages give an actionable workaround; nothing is fetched for private chats', async () => {
+  delete process.env.AIMAX_LINKS_ALLOW_HOST; const { readLink } = await import('../src/web/links.js');
+  for (const u of ['https://claude.ai/chat/abc-123', 'https://chatgpt.com/c/abc']) {
+    const r = await readLink(u); assert.equal(r.ok, false); assert.match(r.error!, /private to your account/); assert.match(r.error!, /Import chats/); assert.match(r.error!, /paste/i);
+  }
+  process.env.AIMAX_LINKS_ALLOW_HOST = host;
+  const { createServer } = await import('node:http');
+  const s403 = createServer((_q, res) => { res.writeHead(403).end('no'); }); await new Promise<void>((r) => s403.listen(0, '127.0.0.1', r));
+  process.env.AIMAX_LINKS_ALLOW_HOST = `127.0.0.1:${(s403.address() as any).port}`;
+  const r = await readLink(`http://${process.env.AIMAX_LINKS_ALLOW_HOST}/x`); s403.close();
+  assert.match(r.error!, /needs a sign-in or blocks automated readers/); assert.match(r.error!, /copy, and paste/);
+});

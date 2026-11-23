@@ -112,11 +112,21 @@ export function htmlToText(html: string): { title: string; description: string; 
 
 export interface LinkResult { url: string; finalUrl?: string; ok: boolean; title?: string; text?: string; truncated?: boolean; kind?: string; error?: string }
 
+const PRIVATE_CHAT = /^(?:www\.)?(claude\.ai|chatgpt\.com|chat\.openai\.com|gemini\.google\.com|copilot\.microsoft\.com|perplexity\.ai)$/i;
+function gatedHint(u: URL, status?: number): string | null {
+  const host = u.hostname;
+  const isShare = /\/share\//.test(u.pathname);
+  if (PRIVATE_CHAT.test(host) && !isShare) return `${host} chats are private to your account, so AImax cannot open them (nothing was sent there). Workarounds: (1) paste the chat text into the message, (2) in that chat ask for a handoff summary and paste it, or (3) export your chats (Claude: Settings → Privacy → Export data; ChatGPT: Settings → Data controls → Export) and use "Import chats" in AImax's sidebar, then continue the chat there.`;
+  if (status === 401 || status === 403) return `The site refused the request${PRIVATE_CHAT.test(host) ? ' (shared chat pages usually block automated readers)' : ' (it needs a sign-in or blocks automated readers)'}. Workaround: open the page yourself, select all, copy, and paste the text into the message — or save it as a PDF/text file and attach it, or add it to the project's knowledge.`;
+  return null;
+}
+
 export async function readLink(url: string, signal?: AbortSignal): Promise<LinkResult> {
   try {
+    const gated = gatedHint(new URL(url)); if (gated) return { url, ok: false, error: gated };
     const first = await get(url, LINK_LIMITS.maxPdfBytes, signal);
     const type = String(first.headers['content-type'] ?? '').toLowerCase();
-    if (first.status >= 400) return { url, ok: false, error: `The site answered HTTP ${first.status}${first.status === 401 || first.status === 403 ? ' (needs sign-in or blocks automated readers)' : ''}.` };
+    if (first.status >= 400) return { url, ok: false, error: gatedHint(new URL(first.finalUrl), first.status) ?? `The site answered HTTP ${first.status}.` };
     const cap = LINK_LIMITS.charsPerLink; const trunc = !!first.headers['x-aimax-truncated'];
     if (type.includes('application/pdf')) {
       if (trunc) return { url, ok: false, error: 'The PDF is larger than 10 MB.' };
@@ -147,7 +157,7 @@ export async function readLink(url: string, signal?: AbortSignal): Promise<LinkR
 export function linkBlock(results: LinkResult[]): { text: string; used: number } {
   let budget = LINK_LIMITS.totalChars; const parts: string[] = [];
   for (const r of results) {
-    if (!r.ok) { parts.push(`### ${r.url}\n[AImax could not read this link: ${r.error}. Do not guess what it contains; tell the user it could not be read.]`); continue; }
+    if (!r.ok) { parts.push(`### ${r.url}\n[AImax could not read this link: ${r.error} Do not guess what it contains; tell the user it could not be read and pass on the workaround.]`); continue; }
     const t = (r.text ?? '').slice(0, Math.max(0, budget)); budget -= t.length;
     parts.push(`### ${r.title ? `${r.title} — ` : ''}${r.finalUrl ?? r.url}${r.finalUrl && r.finalUrl !== r.url ? ` (from ${r.url})` : ''}\n${t}${r.truncated || t.length < (r.text?.length ?? 0) ? '\n[…page truncated]' : ''}`);
   }
